@@ -1,6 +1,6 @@
 # CFDNS
 
-CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local PostgreSQL cache of all zones and records while sending record changes directly to Cloudflare.
+CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local SQLite or PostgreSQL cache of all zones and records while sending record changes directly to Cloudflare.
 
 ## Features
 
@@ -10,17 +10,24 @@ CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local
 - Search across zone, hostname, record content (including IP addresses), Cloudflare comments, and local comments
 - Manual synchronization and automatic synchronization every 15 minutes
 - Local comments that survive Cloudflare synchronization
-- FastAPI, PostgreSQL, SQLAlchemy, Alembic, Jinja, and HTMX
+- FastAPI, SQLite or PostgreSQL, SQLAlchemy, Alembic, Jinja, and HTMX
 
 ## Requirements
 
 - Python 3.12 or newer
-- PostgreSQL 14 or newer
+- SQLite (included) or PostgreSQL 14 or newer
 - A Cloudflare API token with `Zone:Read` and `DNS:Edit` for the relevant zones
 
 ## Installation
 
-Create a PostgreSQL user and database. Run these commands as a PostgreSQL administrator and choose a strong password:
+Choose a database. SQLite is the simplest option for a single-user installation:
+
+```bash
+cp .env.sqlite.example .env
+mkdir -p data
+```
+
+For PostgreSQL, create a user and database as a PostgreSQL administrator:
 
 ```sql
 CREATE ROLE cfdns WITH LOGIN PASSWORD 'replace-this-password';
@@ -33,11 +40,12 @@ Create the application environment:
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
+# Skip this when .env was created from .env.sqlite.example above.
 cp .env.example .env
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Put the generated key and the correct PostgreSQL password in `.env`. Keep `ENCRYPTION_KEY` stable: changing or losing it makes stored tokens unreadable.
+Put the generated key in `.env`. For PostgreSQL, also set the correct database password. Keep `ENCRYPTION_KEY` stable: changing or losing it makes stored tokens unreadable.
 
 Set `ADMIN_PASSWORD` to a strong administrator password. It defaults to `cfdns` for initial local setup and should be changed before exposing the service to other devices.
 
@@ -52,7 +60,7 @@ Open <http://127.0.0.1:8000>. For LAN access, bind to a private interface and pu
 
 ## Optional Docker installation
 
-The manual installation above remains fully supported. Docker users can run the application and PostgreSQL with persistent storage through Compose.
+The manual installation above remains fully supported. Docker uses SQLite by default, so only the application image is required. The database file is kept in a persistent Docker volume.
 
 After cloning the repository:
 
@@ -62,7 +70,7 @@ cp .docker.env.example .docker.env
 docker compose up --detach --build
 ```
 
-The application container waits for PostgreSQL, applies Alembic migrations, and starts FastAPI. Data is stored in the `cfdns-postgres` Docker volume.
+The application container applies Alembic migrations and starts FastAPI. SQLite data is stored in the `cfdns-data` Docker volume.
 
 Published releases can be installed without cloning:
 
@@ -70,7 +78,7 @@ Published releases can be installed without cloning:
 curl -fsSL https://raw.githubusercontent.com/pi11/cfdns/master/scripts/install-docker.sh | sh
 ```
 
-The installer generates database credentials, a Fernet encryption key, and an administrator password, then starts the published GHCR image. Set `ADMIN_PASSWORD` before the command to choose the initial password:
+The installer generates a Fernet encryption key and an administrator password, then starts the published GHCR image with SQLite. Set `ADMIN_PASSWORD` before the command to choose the initial password:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/pi11/cfdns/master/scripts/install-docker.sh | ADMIN_PASSWORD='choose-a-strong-password' sh
@@ -84,6 +92,18 @@ docker compose logs --follow app
 docker compose pull && docker compose up --detach
 docker compose down
 ```
+
+### Docker with PostgreSQL
+
+For a larger installation, use the PostgreSQL Compose variant:
+
+```bash
+cp .docker-postgres.env.example .docker-postgres.env
+# Replace every placeholder, then run:
+docker compose --file compose.postgres.yaml up --detach --build
+```
+
+SQLite runs with WAL mode, foreign keys, a 30-second busy timeout, and one Uvicorn worker. PostgreSQL remains the better choice if multiple application processes or many users will write concurrently.
 
 ## Development
 

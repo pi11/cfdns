@@ -2,7 +2,9 @@
 .env
 .env.*
 !.env.example
+!.env.sqlite.example
 .docker.env
+.docker-postgres.env
 
 # Virtual environments
 .venv/

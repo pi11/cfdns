@@ -90,6 +90,8 @@ class DNSRecord(TimestampMixin, Base):
         earliest = self.ssl_earliest_expiry
         if earliest is None:
             return "danger"
+        if earliest.tzinfo is None:
+            earliest = earliest.replace(tzinfo=UTC)
         remaining = earliest - datetime.now(UTC)
         if remaining <= timedelta(days=14):
             return "danger" if remaining.total_seconds() <= 0 else "warning"

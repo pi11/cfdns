@@ -1,28 +1,15 @@
 name: cfdns
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    env_file: ${CFDNS_ENV_FILE:-.docker.env}
-    volumes:
-      - cfdns-postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   app:
     image: ${CFDNS_IMAGE:-ghcr.io/pi11/cfdns:latest}
     build: .
     restart: unless-stopped
     env_file: ${CFDNS_ENV_FILE:-.docker.env}
-    depends_on:
-      postgres:
-        condition: service_healthy
     ports:
       - "${CFDNS_PORT:-8000}:8000"
+    volumes:
+      - cfdns-data:/opt/cfdns/data
     healthcheck:
       test:
         - CMD
@@ -34,4 +21,4 @@ services:
       retries: 10
 
 volumes:
-  cfdns-postgres:
+  cfdns-data:

@@ -29,15 +29,11 @@ curl --fail --silent --show-error --location "$RAW_BASE/compose.yaml" \
     --output "$CFDNS_INSTALL_DIR/compose.yaml"
 
 if [ ! -f "$CFDNS_INSTALL_DIR/.docker.env" ]; then
-    database_password="$(openssl rand -hex 24)"
     encryption_key="$(openssl rand -base64 32 | tr '+/' '-_')"
     admin_password="${ADMIN_PASSWORD:-$(openssl rand -base64 18 | tr '+/' '-_' | tr -d '=')}"
     umask 077
     {
-        echo "POSTGRES_USER=cfdns"
-        echo "POSTGRES_PASSWORD=$database_password"
-        echo "POSTGRES_DB=cfdns"
-        echo "DATABASE_URL=postgresql+asyncpg://cfdns:$database_password@postgres/cfdns"
+        echo "DATABASE_URL=sqlite+aiosqlite:////opt/cfdns/data/cfdns.db"
         echo "ENCRYPTION_KEY=$encryption_key"
         echo "ADMIN_PASSWORD=$admin_password"
         echo "SYNC_INTERVAL_MINUTES=15"

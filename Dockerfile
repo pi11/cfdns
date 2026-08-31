@@ -19,7 +19,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && python -m venv /opt/cfdns/.venv \
     && addgroup --system cfdns \
-    && adduser --system --ingroup cfdns --home /opt/cfdns cfdns
+    && adduser --system --ingroup cfdns --home /opt/cfdns cfdns \
+    && install -d -o cfdns -g cfdns /opt/cfdns/data
 
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
