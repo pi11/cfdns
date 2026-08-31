@@ -103,6 +103,7 @@ async def dashboard(
     zone_id: str = "",
     record_type: str = "",
     proxy_status: str = "",
+    ssl_status: str = "",
     page: int = Query(default=1, ge=1),
     per_page: str = "25",
     session: AsyncSession = Depends(get_db),
@@ -111,6 +112,8 @@ async def dashboard(
         per_page = "25"
     if proxy_status not in {"", "proxied", "dns_only"}:
         proxy_status = ""
+    if ssl_status not in {"", "error"}:
+        ssl_status = ""
     selected_account_id = int(account_id) if account_id.isdigit() else None
     selected_zone_id = int(zone_id) if zone_id.isdigit() else None
     accounts = list(
@@ -140,6 +143,19 @@ async def dashboard(
         conditions.append(DNSRecord.proxied.is_(True))
     elif proxy_status == "dns_only":
         conditions.append(DNSRecord.proxied.is_not(True))
+
+    ssl_error_condition = DNSRecord.ssl_results.any(SSLCheckResult.status != "valid")
+    ssl_error_count = int(
+        await session.scalar(
+            select(func.count(SSLCheckResult.id))
+            .join(SSLCheckResult.record)
+            .join(DNSRecord.zone)
+            .where(*conditions, SSLCheckResult.status != "valid")
+        )
+        or 0
+    )
+    if ssl_status == "error":
+        conditions.append(ssl_error_condition)
 
     total_records = int(
         await session.scalar(
@@ -182,6 +198,7 @@ async def dashboard(
             "zone_id": selected_zone_id or "",
             "record_type": record_type,
             "proxy_status": proxy_status,
+            "ssl_status": ssl_status,
             "per_page": per_page,
             "page": target_page,
         }
@@ -202,6 +219,7 @@ async def dashboard(
             "zone_id": selected_zone_id or "",
             "record_type": record_type,
             "proxy_status": "" if proxy_status == status else status,
+            "ssl_status": ssl_status,
             "per_page": per_page,
             "page": 1,
         }
@@ -214,6 +232,20 @@ async def dashboard(
             "zone_id": "",
             "record_type": record_type,
             "proxy_status": proxy_status,
+            "ssl_status": ssl_status,
+            "per_page": per_page,
+            "page": 1,
+        }
+        return f"/?{urlencode(params)}"
+
+    def ssl_error_filter_url() -> str:
+        params = {
+            "q": q,
+            "account_id": selected_account_id or "",
+            "zone_id": selected_zone_id or "",
+            "record_type": record_type,
+            "proxy_status": proxy_status,
+            "ssl_status": "" if ssl_status == "error" else "error",
             "per_page": per_page,
             "page": 1,
         }
@@ -230,6 +262,9 @@ async def dashboard(
         "zone_id": selected_zone_id,
         "record_type": record_type,
         "proxy_status": proxy_status,
+        "ssl_status": ssl_status,
+        "ssl_error_count": ssl_error_count,
+        "ssl_error_filter_url": ssl_error_filter_url(),
         "proxy_filter_urls": {
             "proxied": proxy_filter_url("proxied"),
             "dns_only": proxy_filter_url("dns_only"),

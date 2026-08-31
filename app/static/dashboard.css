@@ -1,0 +1,28 @@
+.summary-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.metric-link {
+  text-decoration: none;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.metric-link:hover {
+  border-color: #526079;
+  transform: translateY(-1px);
+}
+
+.metric-link.danger strong {
+  color: #ff9999;
+}
+
+.metric-link.active {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px #ef646433;
+}
+
+@media (max-width: 850px) {
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

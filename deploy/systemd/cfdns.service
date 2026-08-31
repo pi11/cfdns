@@ -1,0 +1,37 @@
+[Unit]
+Description=CFDNS Cloudflare DNS Manager
+Documentation=https://github.com/pi11/cfdns
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=cfdns
+Group=cfdns
+WorkingDirectory=/opt/cfdns
+Environment="APP_HOST=127.0.0.1"
+Environment="APP_PORT=8000"
+EnvironmentFile=/opt/cfdns/.env
+ExecStartPre=/opt/cfdns/.venv/bin/alembic upgrade head
+ExecStart=/opt/cfdns/.venv/bin/uvicorn app.main:app --host ${APP_HOST} --port ${APP_PORT}
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+KillSignal=SIGINT
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+# Set to true only when the application is installed outside /home.
+ProtectHome=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

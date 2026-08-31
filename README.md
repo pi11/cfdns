@@ -60,6 +60,29 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 Open <http://127.0.0.1:8000>. For LAN access, bind to a private interface and put the application behind an HTTPS reverse proxy. The administrator login protects the UI, but CFDNS should still not be exposed directly to the public internet.
 
+### systemd service
+
+For a manual installation under `/opt/cfdns`, create a dedicated service account and grant it ownership of the application directory:
+
+```bash
+sudo useradd --system --home-dir /opt/cfdns --shell /usr/sbin/nologin cfdns
+sudo chown -R cfdns:cfdns /opt/cfdns
+sudo install -m 0644 deploy/systemd/cfdns.service /etc/systemd/system/cfdns.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now cfdns
+```
+
+Check the service:
+
+```bash
+systemctl status cfdns
+journalctl -u cfdns -f
+```
+
+The unit reads `/opt/cfdns/.env` and applies pending Alembic migrations before every start. Set `APP_HOST=0.0.0.0` in `.env` only when LAN access is required and protected appropriately.
+
+For an installation inside a user's home directory, update `WorkingDirectory`, `EnvironmentFile`, `ExecStartPre`, and `ExecStart` consistently. Keep `ProtectHome=false`; otherwise systemd hides the virtual environment and reports its executables as missing. The service user must also have permission to traverse the parent directories and write to the SQLite `data` directory.
+
 ## Optional Docker installation
 
 The manual installation above remains fully supported. Docker uses SQLite by default, so only the application image is required. The database file is kept in a persistent Docker volume.
