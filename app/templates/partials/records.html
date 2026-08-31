@@ -1,12 +1,26 @@
 {% if records %}
 <div class="table-wrap">
 <table>
-  <thead><tr><th>Type</th><th>Name / SSL</th><th>Value</th><th>Proxy / TTL</th><th>Comments</th><th></th></tr></thead>
-  <tbody>
-  {% for record in records %}
-  {% include "partials/record_row.html" %}
-  {% endfor %}
+  <thead><tr><th class="selection-cell"><input id="select-visible-records" type="checkbox" aria-label="Select all records on this page"></th><th>Type</th><th>Name / SSL</th><th>Value</th><th>Proxy / TTL</th><th>Comments</th><th></th></tr></thead>
+  {% for group_records in zone_groups %}
+  {% set group_zone = group_records[0].zone %}
+  <tbody class="zone-group" data-zone-id="{{ group_zone.id }}">
+    <tr class="zone-summary" title="Cloudflare account: {{ group_zone.account.name }}">
+      <td colspan="7">
+        <button class="zone-toggle" type="button" data-zone-id="{{ group_zone.id }}" aria-expanded="{{ 'true' if expand_zone_groups else 'false' }}">
+          <span class="zone-chevron" aria-hidden="true">›</span>
+          <strong>{{ group_zone.name }}</strong>
+          <span>{{ group_zone.account.name }}</span>
+          <small>{{ group_records|length }} record{% if group_records|length != 1 %}s{% endif %} on this page</small>
+        </button>
+      </td>
+    </tr>
+    {% for record in group_records %}
+      {% set collapse_zone_record = not expand_zone_groups %}
+      {% include "partials/record_row.html" %}
+    {% endfor %}
   </tbody>
+  {% endfor %}
 </table>
 </div>
 <div class="pagination-bar">

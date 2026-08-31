@@ -9,7 +9,12 @@
   <link rel="stylesheet" href="{{ url_for('static', path='ssl.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='modal.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='pagination.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='bulk-delete.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='zone-groups.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='account-filter.css') }}">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+  <script src="{{ url_for('static', path='bulk-delete.js') }}" defer></script>
+  <script src="{{ url_for('static', path='zone-groups.js') }}" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -29,6 +34,15 @@
     <div class="confirm-modal-actions">
       <button id="delete-record-cancel" type="button">Cancel</button>
       <button id="delete-record-confirm" class="button danger-solid" type="button">Delete record</button>
+    </div>
+  </dialog>
+  <dialog id="bulk-delete-modal" class="confirm-modal">
+    <div class="confirm-modal-icon">!</div>
+    <h2>Delete selected records?</h2>
+    <p><strong id="bulk-delete-count">0</strong> DNS records will be permanently removed from Cloudflare. Successful deletions cannot be undone.</p>
+    <div class="confirm-modal-actions">
+      <button id="bulk-delete-cancel" type="button">Cancel</button>
+      <button id="bulk-delete-confirm" class="button danger-solid" type="button"><span class="bulk-delete-label">Delete records</span><span class="bulk-delete-spinner" aria-label="Deleting"></span></button>
     </div>
   </dialog>
   <script>
@@ -76,6 +90,25 @@
         if (event.detail.elt.closest('.record-delete-form')) {
           window.alert(event.detail.xhr.responseText || 'The DNS record could not be deleted.');
         }
+      });
+
+      document.addEventListener('click', (event) => {
+        const proxyLink = event.target.closest('[data-proxy-filter]');
+        const proxySelect = document.querySelector('[name="proxy_status"]');
+        if (proxyLink && proxySelect) proxySelect.value = proxyLink.dataset.proxyFilter;
+      });
+
+      document.addEventListener('click', (event) => {
+        const accountLink = event.target.closest('[data-account-filter]');
+        if (!accountLink) return;
+        const accountSelect = document.querySelector('[name="account_id"]');
+        const zoneSelect = document.querySelector('[name="zone_id"]');
+        if (accountSelect) accountSelect.value = accountLink.dataset.accountFilter;
+        if (zoneSelect) zoneSelect.value = '';
+        document.querySelectorAll('.account-filter-link').forEach((link) => {
+          const active = link === accountLink && accountLink.dataset.accountFilter !== '';
+          link.classList.toggle('active', active);
+        });
       });
     })();
   </script>

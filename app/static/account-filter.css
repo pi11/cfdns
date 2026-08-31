@@ -1,0 +1,13 @@
+.account-filter-link {
+  display: inline-block;
+  color: var(--text);
+  font-weight: 700;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+}
+
+.account-filter-link:hover,
+.account-filter-link.active {
+  color: var(--accent2);
+  text-decoration-color: currentColor;
+}

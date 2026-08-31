@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
+from itertools import groupby
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,12 +102,15 @@ async def dashboard(
     account_id: str = "",
     zone_id: str = "",
     record_type: str = "",
+    proxy_status: str = "",
     page: int = Query(default=1, ge=1),
     per_page: str = "25",
     session: AsyncSession = Depends(get_db),
 ):
     if per_page not in {"25", "50", "100", "all"}:
         per_page = "25"
+    if proxy_status not in {"", "proxied", "dns_only"}:
+        proxy_status = ""
     selected_account_id = int(account_id) if account_id.isdigit() else None
     selected_zone_id = int(zone_id) if zone_id.isdigit() else None
     accounts = list(
@@ -125,6 +136,10 @@ async def dashboard(
         conditions.append(DNSRecord.zone_id == selected_zone_id)
     if record_type:
         conditions.append(DNSRecord.record_type == record_type.upper())
+    if proxy_status == "proxied":
+        conditions.append(DNSRecord.proxied.is_(True))
+    elif proxy_status == "dns_only":
+        conditions.append(DNSRecord.proxied.is_not(True))
 
     total_records = int(
         await session.scalar(
@@ -144,11 +159,21 @@ async def dashboard(
             selectinload(DNSRecord.ssl_results),
         )
         .where(*conditions)
-        .order_by(Zone.name, DNSRecord.name, DNSRecord.record_type, DNSRecord.id)
+        .order_by(
+            Zone.name,
+            Zone.account_id,
+            Zone.id,
+            DNSRecord.name,
+            DNSRecord.record_type,
+            DNSRecord.id,
+        )
     )
     if per_page != "all":
         statement = statement.offset((page - 1) * page_size).limit(page_size)
     records = list(await session.scalars(statement))
+    zone_groups = [
+        list(group) for _zone_id, group in groupby(records, key=lambda record: record.zone_id)
+    ]
 
     def page_url(target_page: int) -> str:
         params = {
@@ -156,6 +181,7 @@ async def dashboard(
             "account_id": selected_account_id or "",
             "zone_id": selected_zone_id or "",
             "record_type": record_type,
+            "proxy_status": proxy_status,
             "per_page": per_page,
             "page": target_page,
         }
@@ -168,14 +194,47 @@ async def dashboard(
     ]
     first_record = 0 if total_records == 0 else (page - 1) * page_size + 1
     last_record = total_records if per_page == "all" else min(page * page_size, total_records)
+
+    def proxy_filter_url(status: str) -> str:
+        params = {
+            "q": q,
+            "account_id": selected_account_id or "",
+            "zone_id": selected_zone_id or "",
+            "record_type": record_type,
+            "proxy_status": "" if proxy_status == status else status,
+            "per_page": per_page,
+            "page": 1,
+        }
+        return f"/?{urlencode(params)}"
+
+    def account_filter_url(target_account_id: int) -> str:
+        params = {
+            "q": q,
+            "account_id": "" if selected_account_id == target_account_id else target_account_id,
+            "zone_id": "",
+            "record_type": record_type,
+            "proxy_status": proxy_status,
+            "per_page": per_page,
+            "page": 1,
+        }
+        return f"/?{urlencode(params)}"
+
     context = {
         "request": request,
         "accounts": accounts,
         "records": records,
+        "zone_groups": zone_groups,
+        "expand_zone_groups": bool(q),
         "q": q,
         "account_id": selected_account_id,
         "zone_id": selected_zone_id,
         "record_type": record_type,
+        "proxy_status": proxy_status,
+        "proxy_filter_urls": {
+            "proxied": proxy_filter_url("proxied"),
+            "dns_only": proxy_filter_url("dns_only"),
+        },
+        "account_filter_urls": {account.id: account_filter_url(account.id) for account in accounts},
         "per_page": per_page,
         "page": page,
         "total_pages": total_pages,
@@ -383,10 +442,34 @@ async def toggle_ssl_check(
         await session.commit()
     await session.refresh(record, ["ssl_results"])
     if request.headers.get("HX-Request"):
+        current_url = request.headers.get("HX-Current-URL", "/")
+        current_params = parse_qs(urlparse(current_url).query)
+        current_proxy_status = current_params.get("proxy_status", [""])[0]
+
+        def proxy_url(status: str) -> str:
+            params = {
+                "q": current_params.get("q", [""])[0],
+                "account_id": current_params.get("account_id", [""])[0],
+                "zone_id": current_params.get("zone_id", [""])[0],
+                "record_type": current_params.get("record_type", [""])[0],
+                "proxy_status": "" if current_proxy_status == status else status,
+                "per_page": current_params.get("per_page", ["25"])[0],
+                "page": 1,
+            }
+            return f"/?{urlencode(params)}"
+
         return templates.TemplateResponse(
             request,
             "partials/record_row.html",
-            {"record": record, "ssl_eligible_types": ELIGIBLE_RECORD_TYPES},
+            {
+                "record": record,
+                "ssl_eligible_types": ELIGIBLE_RECORD_TYPES,
+                "proxy_status": current_proxy_status,
+                "proxy_filter_urls": {
+                    "proxied": proxy_url("proxied"),
+                    "dns_only": proxy_url("dns_only"),
+                },
+            },
         )
     state = "enabled" if record.ssl_check_enabled else "disabled"
     return redirect("/", message=f"SSL checks {state} for {record.name}.")
@@ -413,3 +496,53 @@ async def delete_record(
     if request.headers.get("HX-Request"):
         return Response(status_code=200)
     return redirect("/", message="DNS record deleted.")
+
+
+@router.post("/records/actions/bulk-delete")
+async def bulk_delete_records(
+    record_ids: list[int] = Form(),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    unique_ids = list(dict.fromkeys(record_ids))
+    if not unique_ids:
+        return JSONResponse({"deleted_ids": [], "errors": []})
+
+    records = list(
+        await session.scalars(
+            select(DNSRecord)
+            .options(joinedload(DNSRecord.zone).joinedload(Zone.account))
+            .where(DNSRecord.id.in_(unique_ids))
+        )
+    )
+    semaphore = asyncio.Semaphore(5)
+
+    async def delete_from_cloudflare(record: DNSRecord) -> tuple[int, str, str | None]:
+        try:
+            token = TokenCipher(settings.encryption_key).decrypt(
+                record.zone.account.encrypted_token
+            )
+            async with semaphore:
+                async with CloudflareClient(token, settings.cloudflare_api_base) as client:
+                    await client.delete_record(record.zone.cloudflare_id, record.cloudflare_id)
+            return record.id, record.name, None
+        except (CloudflareError, ValueError) as exc:
+            return record.id, record.name, str(exc)
+
+    results = await asyncio.gather(*(delete_from_cloudflare(record) for record in records))
+    deleted_ids = [record_id for record_id, _name, error in results if error is None]
+    errors = [
+        {"record_id": record_id, "name": name, "error": error}
+        for record_id, name, error in results
+        if error is not None
+    ]
+    found_ids = {record.id for record in records}
+    errors.extend(
+        {"record_id": record_id, "name": f"Record #{record_id}", "error": "Not found"}
+        for record_id in unique_ids
+        if record_id not in found_ids
+    )
+    if deleted_ids:
+        await session.execute(delete(DNSRecord).where(DNSRecord.id.in_(deleted_ids)))
+        await session.commit()
+    return JSONResponse({"deleted_ids": deleted_ids, "errors": errors})

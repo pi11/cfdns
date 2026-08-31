@@ -1,0 +1,48 @@
+.record-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.selection-cell {
+  width: 42px;
+  padding-right: 4px;
+  text-align: center;
+}
+
+.selection-cell input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.bulk-delete-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff55;
+  border-top-color: white;
+  border-radius: 50%;
+  animation: delete-spin .7s linear infinite;
+}
+
+.confirm-modal.deleting .bulk-delete-label {
+  display: none;
+}
+
+.confirm-modal.deleting .bulk-delete-spinner {
+  display: inline-block;
+}
+
+@media (max-width: 650px) {
+  .panel-heading {
+    align-items: flex-start;
+  }
+
+  .record-list-actions {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+  }
+}

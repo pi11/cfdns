@@ -9,16 +9,20 @@
 <section class="panel">
   <div class="panel-heading">
     <div><h1>DNS records</h1><p>Search names, values, IP addresses, zones, and comments.</p></div>
-    {% if accounts %}
-    <details class="menu">
-      <summary class="button primary">Add record</summary>
-      <div class="menu-card">
-        {% for account in accounts %}
-          {% for zone in account.zones %}<a href="/zones/{{ zone.id }}/records/new">{{ zone.name }}</a>{% endfor %}
-        {% endfor %}
-      </div>
-    </details>
-    {% endif %}
+    <div class="record-list-actions">
+      <button id="toggle-all-zones" class="button" type="button">Expand all</button>
+      <button id="bulk-delete-button" class="button danger" type="button" hidden>Delete records (<span>0</span>)</button>
+      {% if accounts %}
+      <details class="menu">
+        <summary class="button primary">Add record</summary>
+        <div class="menu-card">
+          {% for account in accounts %}
+            {% for zone in account.zones %}<a href="/zones/{{ zone.id }}/records/new">{{ zone.name }}</a>{% endfor %}
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
   </div>
   <form class="filters" action="/" method="get" hx-get="/" hx-target="#records" hx-push-url="true" hx-trigger="input changed delay:350ms[event.target.name === 'q' && (event.target.value.length >= 3 || event.target.value.length === 0)], change[event.target.name !== 'q']">
     <input type="search" name="q" value="{{ q }}" placeholder="Search hostname, IP, value, or comment…" autofocus>
@@ -34,6 +38,11 @@
       <option value="">All types</option>
       {% for type in ['A','AAAA','CNAME','MX','TXT','NS','SRV','CAA','PTR'] %}<option value="{{ type }}" {% if record_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}
     </select>
+    <select name="proxy_status" aria-label="Proxy status">
+      <option value="">All proxy modes</option>
+      <option value="proxied" {% if proxy_status == 'proxied' %}selected{% endif %}>Proxied</option>
+      <option value="dns_only" {% if proxy_status == 'dns_only' %}selected{% endif %}>DNS only</option>
+    </select>
     <select name="per_page" aria-label="Records per page">
       {% for size in ['25','50','100','all'] %}<option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size|capitalize }} records</option>{% endfor %}
     </select>
@@ -46,7 +55,7 @@
   <div class="account-list">
     {% for account in accounts %}
     <article class="account-row">
-      <div><strong>{{ account.name }}</strong><span>{{ account.zones|length }} zones · {% if account.last_synced_at %}synced {{ account.last_synced_at.strftime('%Y-%m-%d %H:%M UTC') }}{% else %}not synchronized{% endif %}</span>{% if account.last_sync_error %}<small class="error-text">{{ account.last_sync_error }}</small>{% endif %}</div>
+      <div><a class="account-filter-link {% if account_id == account.id %}active{% endif %}" href="{{ account_filter_urls[account.id] }}" hx-get="{{ account_filter_urls[account.id] }}" hx-target="#records" hx-push-url="true" data-account-filter="{% if account_id == account.id %}{% else %}{{ account.id }}{% endif %}" title="Show records from {{ account.name }}">{{ account.name }}</a><span>{{ account.zones|length }} zones · {% if account.last_synced_at %}synced {{ account.last_synced_at.strftime('%Y-%m-%d %H:%M UTC') }}{% else %}not synchronized{% endif %}</span>{% if account.last_sync_error %}<small class="error-text">{{ account.last_sync_error }}</small>{% endif %}</div>
       <div class="actions">
         <form action="/accounts/{{ account.id }}/sync" method="post"><button class="button" type="submit">Sync now</button></form>
         <form action="/accounts/{{ account.id }}/delete" method="post"><button class="button danger" type="submit" data-confirm="Remove this account and its local cache? Cloudflare records will not be deleted.">Remove</button></form>

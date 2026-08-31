@@ -1,4 +1,5 @@
-<tr id="record-{{ record.id }}">
+<tr id="record-{{ record.id }}" class="zone-record" data-zone-id="{{ record.zone_id }}" title="Cloudflare account: {{ record.zone.account.name }}" {% if collapse_zone_record|default(false) %}hidden{% endif %}>
+  <td class="selection-cell"><input class="record-select" type="checkbox" value="{{ record.id }}" aria-label="Select {{ record.name }}"></td>
   <td><span class="type-badge">{{ record.record_type }}</span></td>
   <td>
     <strong>{{ record.name }}</strong>
@@ -13,7 +14,7 @@
     {% endif %}
   </td>
   <td><code>{{ record.content }}</code>{% if record.priority is not none %}<small>Priority {{ record.priority }}</small>{% endif %}</td>
-  <td>{% if record.proxied %}<span class="proxy on">Proxied</span>{% else %}<span class="proxy">DNS only</span>{% endif %}<small>{% if record.ttl == 1 %}Auto TTL{% else %}{{ record.ttl }}s TTL{% endif %}</small></td>
+  <td>{% if record.proxied %}<a class="proxy on {% if proxy_status == 'proxied' %}active{% endif %}" href="{{ proxy_filter_urls.proxied }}" hx-get="{{ proxy_filter_urls.proxied }}" hx-target="#records" hx-push-url="true" data-proxy-filter="{% if proxy_status == 'proxied' %}{% else %}proxied{% endif %}" title="Show only proxied records"><span class="cloudflare-cloud" aria-hidden="true">☁</span> Proxied</a>{% else %}<a class="proxy {% if proxy_status == 'dns_only' %}active{% endif %}" href="{{ proxy_filter_urls.dns_only }}" hx-get="{{ proxy_filter_urls.dns_only }}" hx-target="#records" hx-push-url="true" data-proxy-filter="{% if proxy_status == 'dns_only' %}{% else %}dns_only{% endif %}" title="Show only DNS-only records">DNS only</a>{% endif %}<small>{% if record.ttl == 1 %}Auto TTL{% else %}{{ record.ttl }}s TTL{% endif %}</small></td>
   <td class="comments">{% if record.cloudflare_comment %}<span title="Cloudflare comment">☁ {{ record.cloudflare_comment }}</span>{% endif %}{% if record.local_comment %}<span title="Local comment">⌂ {{ record.local_comment }}</span>{% endif %}{% if not record.cloudflare_comment and not record.local_comment %}<span class="muted">—</span>{% endif %}</td>
   <td><div class="row-actions"><a href="/records/{{ record.id }}/edit">Edit</a><form class="record-delete-form" action="/records/{{ record.id }}/delete" method="post" hx-post="/records/{{ record.id }}/delete" hx-target="closest tr" hx-swap="outerHTML" hx-trigger="confirmed"><button class="record-delete-trigger" type="button" data-record-name="{{ record.name }}"><span class="delete-label">Delete</span><span class="delete-spinner" aria-label="Deleting"></span></button></form></div></td>
 </tr>

@@ -1,5 +1,31 @@
 .filters {
-  grid-template-columns: minmax(260px, 1fr) 170px 170px 120px 140px;
+  grid-template-columns: minmax(240px, 1fr) 155px 155px 110px 135px 130px;
+}
+
+.proxy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.proxy:hover,
+.proxy.active {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.proxy.on:hover,
+.proxy.on.active {
+  color: var(--accent2);
+}
+
+.cloudflare-cloud {
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+  text-decoration: none;
 }
 
 .pagination-bar {
