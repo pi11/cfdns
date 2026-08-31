@@ -4,8 +4,6 @@ CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local
 
 ![CFDNS account filtering](docs/cfdns-account-filter.png)
 
-![CFDNS records grouped by zone](docs/cfdns-zone-groups.png)
-
 ## Features
 
 - Multiple Cloudflare accounts connected with scoped API tokens
