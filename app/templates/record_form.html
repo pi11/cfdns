@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{% if record %}Edit {{ record.name }}{% else %}New DNS record{% endif %} · CFDNS{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+  <div class="panel-heading"><div><a class="back" href="/">← Back to records</a><h1>{% if record %}Edit DNS record{% else %}Create DNS record{% endif %}</h1><p>{{ zone.name }} · {{ zone.account.name }}</p></div></div>
+  <form class="record-form" action="{% if record %}/records/{{ record.id }}{% else %}/zones/{{ zone.id }}/records{% endif %}" method="post">
+    <div class="form-grid">
+      <label>Type<select name="type" required>{% for type in ['A','AAAA','CNAME','MX','TXT','NS','SRV','CAA','PTR'] %}<option value="{{ type }}" {% if record and record.record_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></label>
+      <label class="wide">Name<input name="name" required maxlength="253" value="{{ record.name if record else '' }}" placeholder="www.example.com"></label>
+      <label class="full">Content<input name="content" required value="{{ record.content if record else '' }}" placeholder="192.0.2.1"></label>
+      <label>TTL<select name="ttl"><option value="1" {% if not record or record.ttl == 1 %}selected{% endif %}>Automatic</option>{% for ttl, label in [(60,'1 minute'),(300,'5 minutes'),(1800,'30 minutes'),(3600,'1 hour'),(86400,'1 day')] %}<option value="{{ ttl }}" {% if record and record.ttl == ttl %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Priority<input name="priority" type="number" min="0" max="65535" value="{{ record.priority if record and record.priority is not none else '' }}" placeholder="For MX/SRV"></label>
+      <label class="checkbox"><input name="proxied" type="checkbox" value="true" {% if record and record.proxied %}checked{% endif %}> Proxy through Cloudflare</label>
+      <label id="ssl-check-option" class="checkbox"><input name="ssl_check_enabled" type="checkbox" value="true" {% if record and record.ssl_check_enabled %}checked{% endif %}> Check SSL certificate on port 443</label>
+      <label class="full">Cloudflare comment<textarea name="cloudflare_comment" maxlength="100" placeholder="Stored in Cloudflare">{{ record.cloudflare_comment if record and record.cloudflare_comment else '' }}</textarea></label>
+      <label class="full">Local comment<textarea name="local_comment" placeholder="Stored only in the local database">{{ record.local_comment if record and record.local_comment else '' }}</textarea></label>
+    </div>
+    <div class="form-actions"><a class="button" href="/">Cancel</a><button class="button primary" type="submit">{% if record %}Save changes{% else %}Create record{% endif %}</button></div>
+  </form>
+  {% if record and record.ssl_check_enabled %}
+  <section class="ssl-details">
+    <h2>SSL endpoints</h2>
+    <p>Each IP is checked directly on port 443 using <code>{{ record.name }}</code> as SNI.</p>
+    {% if record.ssl_results %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>IP address</th><th>Status</th><th>Certificate expires</th><th>Last checked</th><th>Error</th></tr></thead>
+      <tbody>{% for result in record.ssl_results %}<tr><td><code>{{ result.ip_address }}</code></td><td><span class="ssl-status {% if result.status == 'valid' %}ok{% else %}danger{% endif %}">{{ result.status|replace('_', ' ') }}</span></td><td>{{ result.certificate_expires_at.strftime('%Y-%m-%d %H:%M UTC') if result.certificate_expires_at else '—' }}</td><td>{{ result.checked_at.strftime('%Y-%m-%d %H:%M UTC') }}</td><td class="ssl-error">{{ result.error or '—' }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="empty">The first check has not completed yet.</p>{% endif %}
+  </section>
+  {% endif %}
+</section>
+<script>
+  (() => {
+    const type = document.querySelector('[name="type"]');
+    const proxied = document.querySelector('[name="proxied"]');
+    const option = document.querySelector('#ssl-check-option');
+    const checkbox = option.querySelector('input');
+    const refresh = () => {
+      const visible = ['A', 'AAAA', 'CNAME'].includes(type.value) && !proxied.checked;
+      option.hidden = !visible;
+      checkbox.disabled = !visible;
+      if (!visible) checkbox.checked = false;
+    };
+    type.addEventListener('change', refresh);
+    proxied.addEventListener('change', refresh);
+    refresh();
+  })();
+</script>
+{% endblock %}

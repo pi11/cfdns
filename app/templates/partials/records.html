@@ -1,0 +1,13 @@
+{% if records %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Type</th><th>Name / SSL</th><th>Value</th><th>Proxy / TTL</th><th>Comments</th><th></th></tr></thead>
+  <tbody>
+  {% for record in records %}
+  {% include "partials/record_row.html" %}
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if records|length == 500 %}<p class="limit-note">Showing the first 500 matching records. Narrow your search to see more.</p>{% endif %}
+{% else %}<div class="empty large"><strong>No records found</strong><span>Connect an account, synchronize it, or adjust the filters.</span></div>{% endif %}

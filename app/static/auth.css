@@ -1,0 +1,40 @@
+.logout {
+  margin-left: auto;
+}
+
+.logout button {
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 11px;
+}
+
+.login-panel {
+  width: min(420px, 100%);
+  margin: 10vh auto 0;
+  padding: 30px;
+}
+
+.login-heading {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.login-heading .brand-mark {
+  display: inline-block;
+  margin: 0 0 15px;
+}
+
+.login-heading h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.login-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.login-panel form {
+  display: grid;
+  gap: 16px;
+}

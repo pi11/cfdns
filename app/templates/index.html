@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="summary-grid">
+  <div class="metric"><strong>{{ accounts|length }}</strong><span>Accounts</span></div>
+  <div class="metric"><strong>{{ accounts|map(attribute='zones')|map('length')|sum }}</strong><span>Zones</span></div>
+  <div class="metric"><strong>{{ records|length }}</strong><span>Visible records</span></div>
+</section>
+
+<section class="panel">
+  <div class="panel-heading">
+    <div><h1>DNS records</h1><p>Search names, values, IP addresses, zones, and comments.</p></div>
+    {% if accounts %}
+    <details class="menu">
+      <summary class="button primary">Add record</summary>
+      <div class="menu-card">
+        {% for account in accounts %}
+          {% for zone in account.zones %}<a href="/zones/{{ zone.id }}/records/new">{{ zone.name }}</a>{% endfor %}
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  </div>
+  <form class="filters" action="/" method="get" hx-get="/" hx-target="#records" hx-push-url="true" hx-trigger="input changed delay:350ms[event.target.name === 'q' && (event.target.value.length >= 3 || event.target.value.length === 0)], change[event.target.name !== 'q']">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search hostname, IP, value, or comment…" autofocus>
+    <select name="account_id">
+      <option value="">All accounts</option>
+      {% for account in accounts %}<option value="{{ account.id }}" {% if account_id == account.id %}selected{% endif %}>{{ account.name }}</option>{% endfor %}
+    </select>
+    <select name="zone_id">
+      <option value="">All zones</option>
+      {% for account in accounts %}{% for zone in account.zones %}<option value="{{ zone.id }}" {% if zone_id == zone.id %}selected{% endif %}>{{ zone.name }}</option>{% endfor %}{% endfor %}
+    </select>
+    <select name="record_type">
+      <option value="">All types</option>
+      {% for type in ['A','AAAA','CNAME','MX','TXT','NS','SRV','CAA','PTR'] %}<option value="{{ type }}" {% if record_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}
+    </select>
+  </form>
+  <div id="records">{% include "partials/records.html" %}</div>
+</section>
+
+<section class="panel accounts-panel">
+  <div class="panel-heading"><div><h2>Cloudflare accounts</h2><p>Tokens require Zone:Read and DNS:Edit permissions.</p></div></div>
+  <div class="account-list">
+    {% for account in accounts %}
+    <article class="account-row">
+      <div><strong>{{ account.name }}</strong><span>{{ account.zones|length }} zones · {% if account.last_synced_at %}synced {{ account.last_synced_at.strftime('%Y-%m-%d %H:%M UTC') }}{% else %}not synchronized{% endif %}</span>{% if account.last_sync_error %}<small class="error-text">{{ account.last_sync_error }}</small>{% endif %}</div>
+      <div class="actions">
+        <form action="/accounts/{{ account.id }}/sync" method="post"><button class="button" type="submit">Sync now</button></form>
+        <form action="/accounts/{{ account.id }}/delete" method="post"><button class="button danger" type="submit" data-confirm="Remove this account and its local cache? Cloudflare records will not be deleted.">Remove</button></form>
+      </div>
+    </article>
+    {% else %}<p class="empty">No Cloudflare account is connected yet.</p>{% endfor %}
+  </div>
+  <details class="connect-form" {% if not accounts %}open{% endif %}>
+    <summary>Connect an account</summary>
+    <form action="/accounts" method="post">
+      <label>Display name<input name="name" required maxlength="120" placeholder="Production"></label>
+      <label>Cloudflare API token<input name="api_token" required type="password" autocomplete="off" placeholder="Token is encrypted before storage"></label>
+      <button class="button primary" type="submit">Connect and sync</button>
+    </form>
+  </details>
+</section>
+{% endblock %}

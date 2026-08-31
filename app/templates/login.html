@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Sign in · CFDNS{% endblock %}
+{% block content %}
+<section class="panel login-panel">
+  <div class="login-heading"><span class="brand-mark">CF</span><h1>Sign in to CFDNS</h1><p>Enter the administrator password to continue.</p></div>
+  <form action="/login" method="post">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Password<input name="password" type="password" required autofocus autocomplete="current-password"></label>
+    <button class="button primary" type="submit">Sign in</button>
+  </form>
+</section>
+{% endblock %}

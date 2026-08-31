@@ -1,0 +1,79 @@
+.ssl-status {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ssl-inline-toggle {
+  display: inline-block;
+  margin: 7px 8px 0 0;
+}
+
+.ssl-inline-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ssl-inline-toggle input {
+  width: auto;
+  margin: 0;
+}
+
+.checkbox[hidden] {
+  display: none;
+}
+
+.ssl-status.ok {
+  border-color: #286b59;
+  background: #15382f;
+  color: #78d9bc;
+}
+
+.ssl-status.notice {
+  border-color: #8a7629;
+  background: #3a3317;
+  color: #ead571;
+}
+
+.ssl-status.warning {
+  border-color: #9b5d21;
+  background: #432a16;
+  color: #f4a75e;
+}
+
+.ssl-status.danger {
+  border-color: #7f3540;
+  background: #3b1e24;
+  color: #f19a9a;
+}
+
+.ssl-details {
+  border-top: 1px solid var(--border);
+  padding: 24px;
+}
+
+.ssl-details h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.ssl-details > p {
+  margin: 5px 0 18px;
+  color: var(--muted);
+}
+
+.ssl-error {
+  max-width: 260px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

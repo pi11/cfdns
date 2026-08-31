@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.docker.env
+.git
+.github
+.idea
+.vscode
+.venv
+__pycache__
+*.pyc
+*.log
+.pytest_cache
+.ruff_cache
+tests
+dist
+htmlcov

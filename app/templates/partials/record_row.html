@@ -1,0 +1,19 @@
+<tr id="record-{{ record.id }}">
+  <td><span class="type-badge">{{ record.record_type }}</span></td>
+  <td>
+    <strong>{{ record.name }}</strong>
+    <small>{{ record.zone.name }} · {{ record.zone.account.name }}</small>
+    {% if record.record_type in ssl_eligible_types and not record.proxied %}
+    <form class="ssl-inline-toggle" action="/records/{{ record.id }}/ssl-toggle" method="post" hx-post="/records/{{ record.id }}/ssl-toggle" hx-target="#record-{{ record.id }}" hx-swap="outerHTML" hx-disabled-elt="find input">
+      <label><input name="enabled" type="checkbox" value="true" {% if record.ssl_check_enabled %}checked{% endif %} onchange="this.form.requestSubmit()"> Check SSL</label>
+    </form>
+    {% endif %}
+    {% if record.ssl_check_enabled %}
+    <span class="ssl-status {{ record.ssl_display_status }}">{% if record.ssl_earliest_expiry %}SSL until {{ record.ssl_earliest_expiry.strftime('%Y-%m-%d') }}{% elif record.ssl_display_status == 'pending' %}SSL check pending{% else %}SSL check failed{% endif %}</span>
+    {% endif %}
+  </td>
+  <td><code>{{ record.content }}</code>{% if record.priority is not none %}<small>Priority {{ record.priority }}</small>{% endif %}</td>
+  <td>{% if record.proxied %}<span class="proxy on">Proxied</span>{% else %}<span class="proxy">DNS only</span>{% endif %}<small>{% if record.ttl == 1 %}Auto TTL{% else %}{{ record.ttl }}s TTL{% endif %}</small></td>
+  <td class="comments">{% if record.cloudflare_comment %}<span title="Cloudflare comment">☁ {{ record.cloudflare_comment }}</span>{% endif %}{% if record.local_comment %}<span title="Local comment">⌂ {{ record.local_comment }}</span>{% endif %}{% if not record.cloudflare_comment and not record.local_comment %}<span class="muted">—</span>{% endif %}</td>
+  <td><div class="row-actions"><a href="/records/{{ record.id }}/edit">Edit</a><form action="/records/{{ record.id }}/delete" method="post"><button type="submit" data-confirm="Delete {{ record.name }} from Cloudflare?">Delete</button></form></div></td>
+</tr>

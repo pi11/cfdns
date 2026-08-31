@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CFDNS{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='auth.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='ssl.css') }}">
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-mark">CF</span> DNS Manager</a>
+    <span class="subtle">Local Cloudflare DNS control plane</span>
+    {% if request.url.path != '/login' %}<form class="logout" action="/logout" method="post"><button type="submit">Log out</button></form>{% endif %}
+  </header>
+  <main class="container">
+    {% if message %}<div class="alert success">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-confirm]");
+      if (button && !window.confirm(button.dataset.confirm)) event.preventDefault();
+    });
+  </script>
+</body>
+</html>
