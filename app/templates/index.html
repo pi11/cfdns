@@ -3,7 +3,7 @@
 <section class="summary-grid">
   <div class="metric"><strong>{{ accounts|length }}</strong><span>Accounts</span></div>
   <div class="metric"><strong>{{ accounts|map(attribute='zones')|map('length')|sum }}</strong><span>Zones</span></div>
-  <div class="metric"><strong>{{ records|length }}</strong><span>Visible records</span></div>
+  <div class="metric"><strong>{{ total_records }}</strong><span>Matching records</span></div>
 </section>
 
 <section class="panel">
@@ -33,6 +33,9 @@
     <select name="record_type">
       <option value="">All types</option>
       {% for type in ['A','AAAA','CNAME','MX','TXT','NS','SRV','CAA','PTR'] %}<option value="{{ type }}" {% if record_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}
+    </select>
+    <select name="per_page" aria-label="Records per page">
+      {% for size in ['25','50','100','all'] %}<option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size|capitalize }} records</option>{% endfor %}
     </select>
   </form>
   <div id="records">{% include "partials/records.html" %}</div>

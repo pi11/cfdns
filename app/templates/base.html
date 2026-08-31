@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='auth.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='ssl.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='modal.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='pagination.css') }}">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
 <body>
@@ -20,11 +22,62 @@
     {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
+  <dialog id="delete-record-modal" class="confirm-modal">
+    <div class="confirm-modal-icon">!</div>
+    <h2>Delete DNS record?</h2>
+    <p><strong id="delete-record-name"></strong> will be permanently removed from Cloudflare.</p>
+    <div class="confirm-modal-actions">
+      <button id="delete-record-cancel" type="button">Cancel</button>
+      <button id="delete-record-confirm" class="button danger-solid" type="button">Delete record</button>
+    </div>
+  </dialog>
   <script>
     document.addEventListener("click", (event) => {
       const button = event.target.closest("[data-confirm]");
       if (button && !window.confirm(button.dataset.confirm)) event.preventDefault();
     });
+    (() => {
+      const modal = document.querySelector('#delete-record-modal');
+      const recordName = document.querySelector('#delete-record-name');
+      const cancel = document.querySelector('#delete-record-cancel');
+      const confirm = document.querySelector('#delete-record-confirm');
+      let pendingForm = null;
+
+      document.addEventListener('click', (event) => {
+        const trigger = event.target.closest('.record-delete-trigger');
+        if (!trigger) return;
+        pendingForm = trigger.closest('form');
+        recordName.textContent = trigger.dataset.recordName;
+        modal.showModal();
+      });
+
+      cancel.addEventListener('click', () => {
+        pendingForm = null;
+        modal.close();
+      });
+
+      modal.addEventListener('cancel', () => {
+        pendingForm = null;
+      });
+
+      confirm.addEventListener('click', () => {
+        if (!pendingForm) return;
+        const form = pendingForm;
+        pendingForm = null;
+        modal.close();
+        if (window.htmx) {
+          htmx.trigger(form, 'confirmed');
+        } else {
+          form.submit();
+        }
+      });
+
+      document.addEventListener('htmx:responseError', (event) => {
+        if (event.detail.elt.closest('.record-delete-form')) {
+          window.alert(event.detail.xhr.responseText || 'The DNS record could not be deleted.');
+        }
+      });
+    })();
   </script>
 </body>
 </html>

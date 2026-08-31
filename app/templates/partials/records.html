@@ -9,5 +9,14 @@
   </tbody>
 </table>
 </div>
-{% if records|length == 500 %}<p class="limit-note">Showing the first 500 matching records. Narrow your search to see more.</p>{% endif %}
+<div class="pagination-bar">
+  <span>Showing {{ first_record }}–{{ last_record }} of {{ total_records }}</span>
+  {% if total_pages > 1 %}
+  <nav class="pagination" aria-label="Records pagination">
+    {% if previous_url %}<a href="{{ previous_url }}" hx-get="{{ previous_url }}" hx-target="#records" hx-push-url="true">Previous</a>{% endif %}
+    {% for number, url in page_links %}<a href="{{ url }}" hx-get="{{ url }}" hx-target="#records" hx-push-url="true" {% if number == page %}class="active" aria-current="page"{% endif %}>{{ number }}</a>{% endfor %}
+    {% if next_url %}<a href="{{ next_url }}" hx-get="{{ next_url }}" hx-target="#records" hx-push-url="true">Next</a>{% endif %}
+  </nav>
+  {% endif %}
+</div>
 {% else %}<div class="empty large"><strong>No records found</strong><span>Connect an account, synchronize it, or adjust the filters.</span></div>{% endif %}

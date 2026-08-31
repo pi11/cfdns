@@ -5,9 +5,9 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -94,8 +94,12 @@ async def dashboard(
     account_id: str = "",
     zone_id: str = "",
     record_type: str = "",
+    page: int = Query(default=1, ge=1),
+    per_page: str = "25",
     session: AsyncSession = Depends(get_db),
 ):
+    if per_page not in {"25", "50", "100", "all"}:
+        per_page = "25"
     selected_account_id = int(account_id) if account_id.isdigit() else None
     selected_zone_id = int(zone_id) if zone_id.isdigit() else None
     accounts = list(
@@ -103,19 +107,10 @@ async def dashboard(
             select(Account).options(selectinload(Account.zones)).order_by(Account.name)
         )
     )
-    statement = (
-        select(DNSRecord)
-        .join(DNSRecord.zone)
-        .options(
-            joinedload(DNSRecord.zone).joinedload(Zone.account),
-            selectinload(DNSRecord.ssl_results),
-        )
-        .order_by(Zone.name, DNSRecord.name, DNSRecord.record_type)
-        .limit(500)
-    )
+    conditions = []
     if q:
         pattern = f"%{q}%"
-        statement = statement.where(
+        conditions.append(
             or_(
                 DNSRecord.name.ilike(pattern),
                 DNSRecord.content.ilike(pattern),
@@ -125,12 +120,54 @@ async def dashboard(
             )
         )
     if selected_account_id:
-        statement = statement.where(Zone.account_id == selected_account_id)
+        conditions.append(Zone.account_id == selected_account_id)
     if selected_zone_id:
-        statement = statement.where(DNSRecord.zone_id == selected_zone_id)
+        conditions.append(DNSRecord.zone_id == selected_zone_id)
     if record_type:
-        statement = statement.where(DNSRecord.record_type == record_type.upper())
+        conditions.append(DNSRecord.record_type == record_type.upper())
+
+    total_records = int(
+        await session.scalar(
+            select(func.count(DNSRecord.id)).join(DNSRecord.zone).where(*conditions)
+        )
+        or 0
+    )
+    page_size = total_records or 1 if per_page == "all" else int(per_page)
+    total_pages = max(1, (total_records + page_size - 1) // page_size)
+    page = min(page, total_pages)
+
+    statement = (
+        select(DNSRecord)
+        .join(DNSRecord.zone)
+        .options(
+            joinedload(DNSRecord.zone).joinedload(Zone.account),
+            selectinload(DNSRecord.ssl_results),
+        )
+        .where(*conditions)
+        .order_by(Zone.name, DNSRecord.name, DNSRecord.record_type, DNSRecord.id)
+    )
+    if per_page != "all":
+        statement = statement.offset((page - 1) * page_size).limit(page_size)
     records = list(await session.scalars(statement))
+
+    def page_url(target_page: int) -> str:
+        params = {
+            "q": q,
+            "account_id": selected_account_id or "",
+            "zone_id": selected_zone_id or "",
+            "record_type": record_type,
+            "per_page": per_page,
+            "page": target_page,
+        }
+        return f"/?{urlencode(params)}"
+
+    first_page_link = max(1, page - 2)
+    last_page_link = min(total_pages, page + 2)
+    page_links = [
+        (number, page_url(number)) for number in range(first_page_link, last_page_link + 1)
+    ]
+    first_record = 0 if total_records == 0 else (page - 1) * page_size + 1
+    last_record = total_records if per_page == "all" else min(page * page_size, total_records)
     context = {
         "request": request,
         "accounts": accounts,
@@ -139,6 +176,15 @@ async def dashboard(
         "account_id": selected_account_id,
         "zone_id": selected_zone_id,
         "record_type": record_type,
+        "per_page": per_page,
+        "page": page,
+        "total_pages": total_pages,
+        "total_records": total_records,
+        "first_record": first_record,
+        "last_record": last_record,
+        "page_links": page_links,
+        "previous_url": page_url(page - 1) if page > 1 else None,
+        "next_url": page_url(page + 1) if page < total_pages else None,
         "ssl_eligible_types": ELIGIBLE_RECORD_TYPES,
         "message": request.query_params.get("message"),
         "error": request.query_params.get("error"),
@@ -348,6 +394,7 @@ async def toggle_ssl_check(
 
 @router.post("/records/{record_id}/delete")
 async def delete_record(
+    request: Request,
     record_id: int,
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -358,7 +405,11 @@ async def delete_record(
         async with CloudflareClient(token, settings.cloudflare_api_base) as client:
             await client.delete_record(record.zone.cloudflare_id, record.cloudflare_id)
     except CloudflareError as exc:
+        if request.headers.get("HX-Request"):
+            return PlainTextResponse(str(exc), status_code=502)
         return redirect("/", error=str(exc))
     await session.delete(record)
     await session.commit()
+    if request.headers.get("HX-Request"):
+        return Response(status_code=200)
     return redirect("/", message="DNS record deleted.")
