@@ -14,7 +14,7 @@ services:
       retries: 20
 
   app:
-    image: ${CFDNS_IMAGE:-ghcr.io/owner/cfdns:latest}
+    image: ${CFDNS_IMAGE:-ghcr.io/pi11/cfdns:latest}
     build: .
     restart: unless-stopped
     env_file: ${CFDNS_ENV_FILE:-.docker.env}
