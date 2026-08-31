@@ -1,0 +1,82 @@
+.confirm-modal {
+  width: min(430px, calc(100% - 32px));
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 24px 80px #000c;
+  text-align: center;
+}
+
+.confirm-modal::backdrop {
+  background: #05070bb8;
+  backdrop-filter: blur(3px);
+}
+
+.confirm-modal-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 15px;
+  place-items: center;
+  border-radius: 50%;
+  background: #3b1e24;
+  color: var(--danger);
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.confirm-modal h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.confirm-modal p {
+  margin: 9px 0 24px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.confirm-modal p strong {
+  color: var(--text);
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.button.danger-solid {
+  border-color: #a84250;
+  background: #8e3441;
+  color: white;
+}
+
+.record-delete-form.htmx-request .delete-label {
+  display: none;
+}
+
+.delete-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff55;
+  border-top-color: var(--danger);
+  border-radius: 50%;
+  animation: delete-spin .7s linear infinite;
+}
+
+.record-delete-form.htmx-request .delete-spinner {
+  display: inline-block;
+}
+
+.record-delete-form.htmx-request button {
+  cursor: wait;
+  pointer-events: none;
+}
+
+@keyframes delete-spin {
+  to { transform: rotate(360deg); }
+}
