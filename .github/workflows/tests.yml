@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite+aiosqlite:////tmp/cfdns-test.db
+      ENCRYPTION_KEY: Os8YvlQiq08JGn1tIm2Fz7QmRA4q3HD7xN9Fj9wS7Pc=
+      ADMIN_PASSWORD: cfdns
+      RUN_SQLITE_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - run: alembic upgrade head
+      - run: pytest
+      - run: ruff check .

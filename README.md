@@ -2,6 +2,8 @@
 
 CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local SQLite or PostgreSQL cache of all zones and records while sending record changes directly to Cloudflare.
 
+![CFDNS dashboard](docs/cfdns-dashboard.png)
+
 ## Features
 
 - Multiple Cloudflare accounts connected with scoped API tokens
