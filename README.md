@@ -67,13 +67,13 @@ The application container waits for PostgreSQL, applies Alembic migrations, and 
 Published releases can be installed without cloning:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pi11/cfdns/main/scripts/install-docker.sh | sh
+curl -fsSL https://raw.githubusercontent.com/pi11/cfdns/master/scripts/install-docker.sh | sh
 ```
 
 The installer generates database credentials, a Fernet encryption key, and an administrator password, then starts the published GHCR image. Set `ADMIN_PASSWORD` before the command to choose the initial password:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pi11/cfdns/main/scripts/install-docker.sh | ADMIN_PASSWORD='choose-a-strong-password' sh
+curl -fsSL https://raw.githubusercontent.com/pi11/cfdns/master/scripts/install-docker.sh | ADMIN_PASSWORD='choose-a-strong-password' sh
 ```
 
 Useful Docker commands:

@@ -5,7 +5,7 @@ CFDNS_REPOSITORY="${CFDNS_REPOSITORY:-pi11/cfdns}"
 CFDNS_IMAGE="${CFDNS_IMAGE:-ghcr.io/${CFDNS_REPOSITORY}:latest}"
 CFDNS_INSTALL_DIR="${CFDNS_INSTALL_DIR:-${HOME}/.local/share/cfdns}"
 CFDNS_PORT="${CFDNS_PORT:-8000}"
-RAW_BASE="https://raw.githubusercontent.com/${CFDNS_REPOSITORY}/main"
+RAW_BASE="https://raw.githubusercontent.com/${CFDNS_REPOSITORY}/master"
 
 command -v docker >/dev/null 2>&1 || {
     echo "Docker is required but was not found." >&2
