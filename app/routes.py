@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import ipaddress
+import json
 from itertools import groupby
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -23,7 +25,9 @@ from app.auth import COOKIE_NAME, session_token
 from app.cloudflare import CloudflareClient, CloudflareError
 from app.config import Settings, get_settings
 from app.database import get_db
-from app.models import Account, DNSRecord, SSLCheckResult, Zone
+from app.models import Account, DNSRecord, OVHAccount, OVHService, SSLCheckResult, Zone
+from app.ovh import OVHClient, OVHError
+from app.ovh_services import sync_ovh_account
 from app.schemas import DNSRecordInput
 from app.security import TokenCipher
 from app.services import apply_remote_record, sync_account
@@ -31,6 +35,35 @@ from app.ssl_checker import ELIGIBLE_RECORD_TYPES, check_and_store_record
 
 router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+async def ovh_matches_for_records(
+    session: AsyncSession, records: list[DNSRecord]
+) -> dict[int, list[OVHService]]:
+    services = list(
+        await session.scalars(
+            select(OVHService).options(joinedload(OVHService.account)).order_by(OVHService.name)
+        )
+    )
+    networks = []
+    for service in services:
+        for value in service.ip_list:
+            try:
+                networks.append((ipaddress.ip_network(value, strict=False), service))
+            except ValueError:
+                continue
+    matches: dict[int, list[OVHService]] = {}
+    for record in records:
+        if record.record_type not in {"A", "AAAA"}:
+            continue
+        try:
+            address = ipaddress.ip_address(record.content.strip())
+        except ValueError:
+            continue
+        found = [service for network, service in networks if address in network]
+        if found:
+            matches[record.id] = list(dict.fromkeys(found))
+    return matches
 
 
 @router.get("/health")
@@ -187,6 +220,7 @@ async def dashboard(
     if per_page != "all":
         statement = statement.offset((page - 1) * page_size).limit(page_size)
     records = list(await session.scalars(statement))
+    ovh_matches = await ovh_matches_for_records(session, records)
     zone_groups = [
         list(group) for _zone_id, group in groupby(records, key=lambda record: record.zone_id)
     ]
@@ -255,6 +289,7 @@ async def dashboard(
         "request": request,
         "accounts": accounts,
         "records": records,
+        "ovh_matches": ovh_matches,
         "zone_groups": zone_groups,
         "expand_zone_groups": bool(q),
         "q": q,
@@ -498,6 +533,7 @@ async def toggle_ssl_check(
             "partials/record_row.html",
             {
                 "record": record,
+                "ovh_matches": await ovh_matches_for_records(session, [record]),
                 "ssl_eligible_types": ELIGIBLE_RECORD_TYPES,
                 "proxy_status": current_proxy_status,
                 "proxy_filter_urls": {
@@ -508,6 +544,122 @@ async def toggle_ssl_check(
         )
     state = "enabled" if record.ssl_check_enabled else "disabled"
     return redirect("/", message=f"SSL checks {state} for {record.name}.")
+
+
+@router.get("/ovh", response_class=HTMLResponse)
+async def ovh_dashboard(
+    request: Request,
+    q: str = Query(default="", max_length=300),
+    account_id: str = "",
+    session: AsyncSession = Depends(get_db),
+):
+    selected_account_id = int(account_id) if account_id.isdigit() else None
+    accounts = list(
+        await session.scalars(
+            select(OVHAccount).options(selectinload(OVHAccount.services)).order_by(OVHAccount.name)
+        )
+    )
+    conditions = []
+    if selected_account_id:
+        conditions.append(OVHService.account_id == selected_account_id)
+    if q:
+        pattern = f"%{q}%"
+        conditions.append(
+            or_(
+                OVHService.name.ilike(pattern),
+                OVHService.canonical_name.ilike(pattern),
+                OVHService.service_type.ilike(pattern),
+                OVHService.ips.ilike(pattern),
+                OVHService.region.ilike(pattern),
+            )
+        )
+    services = list(
+        await session.scalars(
+            select(OVHService)
+            .options(joinedload(OVHService.account))
+            .where(*conditions)
+            .order_by(OVHService.account_id, OVHService.name)
+        )
+    )
+    return templates.TemplateResponse(
+        request,
+        "ovh.html",
+        {
+            "accounts": accounts,
+            "services": services,
+            "q": q,
+            "account_id": selected_account_id,
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@router.post("/ovh/accounts")
+async def add_ovh_account(
+    name: str = Form(min_length=1, max_length=120),
+    endpoint: str = Form("ovh-eu"),
+    application_key: str = Form(min_length=1),
+    application_secret: str = Form(min_length=1),
+    consumer_key: str = Form(min_length=1),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    clean_name = name.strip()
+    if endpoint not in {"ovh-eu", "ovh-ca"}:
+        return redirect("/ovh", error="Invalid OVH API region.")
+    if await session.scalar(select(OVHAccount).where(OVHAccount.name == clean_name)):
+        return redirect("/ovh", error="An OVH account with this name already exists.")
+    try:
+        api_token = json.dumps(
+            {
+                "applicationKey": application_key.strip(),
+                "applicationSecret": application_secret.strip(),
+                "consumerKey": consumer_key.strip(),
+            }
+        )
+        api_base = settings.ovh_ca_api_base if endpoint == "ovh-ca" else settings.ovh_api_base
+        async with OVHClient(api_token, api_base) as client:
+            await client.verify_token()
+        account = OVHAccount(
+            name=clean_name,
+            encrypted_token=TokenCipher(settings.encryption_key).encrypt(api_token),
+            endpoint=endpoint,
+        )
+        session.add(account)
+        await session.commit()
+        await session.refresh(account)
+        await sync_ovh_account(session, account, settings)
+    except (OVHError, ValueError) as exc:
+        await session.rollback()
+        return redirect("/ovh", error=str(exc))
+    return redirect("/ovh", message=f"OVH account {account.name} connected and synchronized.")
+
+
+@router.post("/ovh/accounts/{account_id}/sync")
+async def synchronize_ovh_account(
+    account_id: int,
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    account = await session.get(OVHAccount, account_id)
+    if not account:
+        raise HTTPException(404, "OVH account not found")
+    try:
+        await sync_ovh_account(session, account, settings)
+    except Exception as exc:
+        return redirect("/ovh", error=f"Synchronization failed: {exc}")
+    return redirect("/ovh", message=f"OVH account {account.name} synchronized.")
+
+
+@router.post("/ovh/accounts/{account_id}/delete")
+async def delete_ovh_account(account_id: int, session: AsyncSession = Depends(get_db)):
+    account = await session.get(OVHAccount, account_id)
+    if not account:
+        raise HTTPException(404, "OVH account not found")
+    await session.delete(account)
+    await session.commit()
+    return redirect("/ovh", message="OVH account and its local cache were removed.")
 
 
 @router.post("/records/{record_id}/delete")

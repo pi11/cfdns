@@ -7,6 +7,8 @@ CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local
 ## Features
 
 - Multiple Cloudflare accounts connected with scoped API tokens
+- Multiple read-only OVH accounts with a searchable service cache
+- Automatic OVH service matching for Cloudflare A and AAAA record IPs
 - Fernet-encrypted token storage
 - Full DNS record create, edit, and delete workflow
 - Search across zone, hostname, record content (including IP addresses), Cloudflare comments, and local comments
@@ -19,6 +21,16 @@ CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local
 - Python 3.12 or newer
 - SQLite (included) or PostgreSQL 14 or newer
 - A Cloudflare API token with `Zone:Read` and `DNS:Edit` for the relevant zones
+- OVH credentials with GET rights for `/me`, `/services`, `/services/*`, and the
+  relevant product endpoints
+
+OVH credentials are entered in separate Application Key, Application Secret, and
+Consumer Key fields. CFDNS combines and encrypts them as one credential at rest.
+Its OVH client only implements GET requests. Use the narrowest OVH API rights
+possible; product-specific GET rights let synchronization obtain server and VPS IP
+addresses.
+Select Canada / North America for credentials created at `ca.api.ovh.com`; OVH API
+credentials are region-specific and will be rejected by the European endpoint.
 
 ## Installation
 

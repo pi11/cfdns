@@ -1,0 +1,16 @@
+.topnav { display: flex; gap: 5px; }
+.topnav a { padding: 7px 10px; border-radius: 6px; text-decoration: none; color: var(--muted); }
+.topnav a:hover, .topnav a.active { background: var(--panel2); color: var(--text); }
+.ovh-match { display: block; width: max-content; max-width: 100%; margin-top: 7px; padding: 4px 7px; border: 1px solid #31506c; border-radius: 5px; background: #142536; color: #8fc9f5; text-decoration: none; font-size: 11px; }
+.ovh-match small { color: #819bb0; }
+.ovh-summary { grid-template-columns: repeat(3, 1fr); }
+.ovh-filters { grid-template-columns: minmax(300px, 1fr) 220px auto; }
+.ovh-table td code { display: block; }
+.ovh-table td code + code { margin-top: 3px; }
+.ovh-ip-link { display: block; width: max-content; max-width: 100%; color: #8fc9f5; text-decoration: none; }
+.ovh-ip-link + .ovh-ip-link { margin-top: 3px; }
+.ovh-ip-link:hover { text-decoration: underline; }
+.connect-form label small { display: block; margin-top: 5px; font-weight: 400; }
+.ovh-connect-form form { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+.ovh-connect-form form button { justify-self: start; }
+@media (max-width: 850px) { .ovh-filters, .ovh-summary, .ovh-connect-form form { grid-template-columns: 1fr; } }

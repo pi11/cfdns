@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
@@ -26,6 +27,47 @@ class Account(TimestampMixin, Base):
     last_sync_error: Mapped[str | None] = mapped_column(Text)
 
     zones: Mapped[list[Zone]] = relationship(back_populates="account", cascade="all, delete-orphan")
+
+
+class OVHAccount(TimestampMixin, Base):
+    __tablename__ = "ovh_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    encrypted_token: Mapped[str] = mapped_column(Text)
+    endpoint: Mapped[str] = mapped_column(String(16), default="ovh-eu", server_default="ovh-eu")
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_sync_error: Mapped[str | None] = mapped_column(Text)
+
+    services: Mapped[list[OVHService]] = relationship(
+        back_populates="account", cascade="all, delete-orphan"
+    )
+
+
+class OVHService(TimestampMixin, Base):
+    __tablename__ = "ovh_services"
+    __table_args__ = (
+        UniqueConstraint("account_id", "ovh_id"),
+        Index("ix_ovh_services_ips", "ips"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("ovh_accounts.id", ondelete="CASCADE"))
+    ovh_id: Mapped[str] = mapped_column(String(160))
+    name: Mapped[str] = mapped_column(String(253), index=True)
+    canonical_name: Mapped[str | None] = mapped_column(String(253), index=True)
+    service_type: Mapped[str] = mapped_column(String(100), default="unknown")
+    status: Mapped[str | None] = mapped_column(String(64))
+    region: Mapped[str | None] = mapped_column(String(100))
+    ips: Mapped[str | None] = mapped_column(Text)
+    price: Mapped[str | None] = mapped_column(String(100))
+    raw_json: Mapped[str | None] = mapped_column(Text)
+
+    account: Mapped[OVHAccount] = relationship(back_populates="services")
+
+    @property
+    def ip_list(self) -> list[str]:
+        return json.loads(self.ips) if self.ips else []
 
 
 class Zone(TimestampMixin, Base):

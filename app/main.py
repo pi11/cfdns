@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.auth import AuthenticationMiddleware
 from app.config import get_settings
 from app.database import SessionLocal
+from app.ovh_services import sync_all_ovh_accounts
 from app.routes import router
 from app.services import sync_all_accounts
 
@@ -20,6 +21,7 @@ async def synchronization_loop() -> None:
         await asyncio.sleep(settings.sync_interval_minutes * 60)
         async with SessionLocal() as session:
             await sync_all_accounts(session, settings)
+            await sync_all_ovh_accounts(session, settings)
 
 
 @asynccontextmanager
