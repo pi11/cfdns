@@ -84,6 +84,31 @@ class OVHService(TimestampMixin, Base):
             return False
 
 
+class AppSettings(TimestampMixin, Base):
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    encrypted_telegram_token: Mapped[str | None] = mapped_column(Text)
+    encrypted_telegram_proxy: Mapped[str | None] = mapped_column(Text)
+    telegram_bot_username: Mapped[str | None] = mapped_column(String(100))
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(32))
+    hide_included_services: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+
+
+class SSLNotificationState(TimestampMixin, Base):
+    __tablename__ = "ssl_notification_states"
+    __table_args__ = (UniqueConstraint("record_id", "ip_address"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    record_id: Mapped[int] = mapped_column(
+        ForeignKey("dns_records.id", ondelete="CASCADE"), index=True
+    )
+    ip_address: Mapped[str] = mapped_column(String(45))
+    state_key: Mapped[str] = mapped_column(String(64))
+
+
 class Zone(TimestampMixin, Base):
     __tablename__ = "zones"
     __table_args__ = (UniqueConstraint("account_id", "cloudflare_id"),)

@@ -1,0 +1,8 @@
+.settings-panel { max-width: 850px; margin-left: auto; margin-right: auto; }
+.settings-form { padding: 22px 24px; display: grid; gap: 16px; }
+.settings-form h2 { margin: 0; font-size: 17px; }
+.settings-checkbox { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.settings-checkbox input { width: auto; margin: 0; }
+.settings-actions { padding: 0 24px 22px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.settings-actions form { margin: 0; }
+.connected-bot { padding: 10px 12px; border: 1px solid #285e50; border-radius: 7px; background: #14362e; }

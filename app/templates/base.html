@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="{{ url_for('static', path='zone-groups.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='account-filter.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='ovh.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='settings.css') }}">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
   <script src="{{ url_for('static', path='bulk-delete.js') }}" defer></script>
   <script src="{{ url_for('static', path='zone-groups.js') }}" defer></script>
@@ -23,7 +24,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/"><span class="brand-mark">CF</span> DNS Manager</a>
-    <nav class="topnav"><a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>DNS</a><a href="/ovh" {% if request.url.path.startswith('/ovh') %}class="active"{% endif %}>OVH services</a></nav>
+    <nav class="topnav"><a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>DNS</a><a href="/ovh" {% if request.url.path.startswith('/ovh') %}class="active"{% endif %}>OVH services</a><a href="/settings" {% if request.url.path.startswith('/settings') %}class="active"{% endif %}>Settings</a></nav>
     <span class="subtle">Cloud infrastructure control plane</span>
     {% if request.url.path != '/login' %}<form class="logout" action="/logout" method="post"><button type="submit">Log out</button></form>{% endif %}
   </header>

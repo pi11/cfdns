@@ -9,6 +9,7 @@ CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local
 - Multiple Cloudflare accounts connected with scoped API tokens
 - Multiple read-only OVH accounts with a searchable service cache
 - Automatic OVH service matching for Cloudflare A and AAAA record IPs
+- Telegram SSL expiry alerts at 30, 14, 7, and 1 day, with failure and recovery alerts
 - Fernet-encrypted token storage
 - Full DNS record create, edit, and delete workflow
 - Search across zone, hostname, record content (including IP addresses), Cloudflare comments, and local comments
@@ -169,3 +170,24 @@ Run the checks every six hours with crontab:
 ```
 
 The checker uses the system CA trust store. An invalid chain, hostname mismatch, expired certificate, DNS failure, timeout, or connection failure is stored and displayed as an error. When validation fails after the server presents a certificate, the checker makes an unverified second connection only to capture its expiration date.
+
+### Telegram alerts
+
+Open **Settings**, save a bot token created with BotFather, and either enter the
+administrator's numeric chat ID or send `/start` to the bot and click **Detect admin
+from /start**. Use **Send test message** to verify delivery. The bot cannot initiate a
+conversation until the administrator has contacted it.
+
+An optional HTTP, HTTPS, or SOCKS5 proxy URL can be configured for Telegram. Proxy
+credentials are encrypted at rest. Telegram credentials are shown in plain text to an
+authenticated administrator on the Settings page so they can be inspected and edited.
+Use the explicit removal checkbox to clear the proxy.
+
+Alerts are deduplicated per DNS record and resolved IP. CFDNS sends expiry reminders
+when a certificate enters the 30-, 14-, 7-, and 1-day windows, one alert for an SSL
+failure state, and a recovery message after the certificate becomes healthy or is
+renewed. Notifications run whenever enabled SSL checks are executed, including via
+`scripts/check_ssl.sh`.
+
+The Settings page also controls whether zero-priced, included OVH service components
+are always hidden from the OVH services table.

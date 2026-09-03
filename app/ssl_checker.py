@@ -123,6 +123,10 @@ async def check_and_store_record(session: AsyncSession, record: DNSRecord) -> li
         for check in checks
     )
     await session.commit()
+    from app.config import get_settings
+    from app.notifications import notify_ssl_results
+
+    await notify_ssl_results(session, record, checks, get_settings())
     return checks
 
 

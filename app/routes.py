@@ -25,16 +25,26 @@ from app.auth import COOKIE_NAME, session_token
 from app.cloudflare import CloudflareClient, CloudflareError
 from app.config import Settings, get_settings
 from app.database import get_db
-from app.models import Account, DNSRecord, OVHAccount, OVHService, SSLCheckResult, Zone
+from app.models import Account, AppSettings, DNSRecord, OVHAccount, OVHService, SSLCheckResult, Zone
 from app.ovh import OVHClient, OVHError
 from app.ovh_services import sync_ovh_account
 from app.schemas import DNSRecordInput
 from app.security import TokenCipher
 from app.services import apply_remote_record, sync_account
 from app.ssl_checker import ELIGIBLE_RECORD_TYPES, check_and_store_record
+from app.telegram import TelegramClient, TelegramError, validate_proxy_url
 
 router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+async def load_app_settings(session: AsyncSession) -> AppSettings:
+    app_settings = await session.get(AppSettings, 1)
+    if app_settings is None:
+        app_settings = AppSettings(id=1)
+        session.add(app_settings)
+        await session.flush()
+    return app_settings
 
 
 async def ovh_matches_for_records(
@@ -554,6 +564,8 @@ async def ovh_dashboard(
     hide_included: bool = False,
     session: AsyncSession = Depends(get_db),
 ):
+    app_settings = await load_app_settings(session)
+    hide_included = hide_included or app_settings.hide_included_services
     selected_account_id = int(account_id) if account_id.isdigit() else None
     accounts = list(
         await session.scalars(
@@ -626,10 +638,138 @@ async def ovh_dashboard(
             "q": q,
             "account_id": selected_account_id,
             "hide_included": hide_included,
+            "hide_included_locked": app_settings.hide_included_services,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
         },
     )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    config: Settings = Depends(get_settings),
+):
+    app_settings = await load_app_settings(session)
+    await session.commit()
+    cipher = TokenCipher(config.encryption_key)
+    telegram_token = (
+        cipher.decrypt(app_settings.encrypted_telegram_token)
+        if app_settings.encrypted_telegram_token
+        else ""
+    )
+    telegram_proxy = (
+        cipher.decrypt(app_settings.encrypted_telegram_proxy)
+        if app_settings.encrypted_telegram_proxy
+        else ""
+    )
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "settings": app_settings,
+            "telegram_token": telegram_token,
+            "telegram_proxy": telegram_proxy,
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@router.post("/settings/preferences")
+async def save_preferences(
+    hide_included_services: bool = Form(False), session: AsyncSession = Depends(get_db)
+):
+    app_settings = await load_app_settings(session)
+    app_settings.hide_included_services = hide_included_services
+    await session.commit()
+    return redirect("/settings", message="Preferences saved.")
+
+
+@router.post("/settings/telegram")
+async def save_telegram(
+    bot_token: str = Form(min_length=1),
+    chat_id: str = Form(""),
+    proxy_url: str = Form(""),
+    clear_proxy: bool = Form(False),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    app_settings = await load_app_settings(session)
+    cipher = TokenCipher(settings.encryption_key)
+    if clear_proxy:
+        effective_proxy = None
+    elif proxy_url.strip():
+        try:
+            effective_proxy = validate_proxy_url(proxy_url)
+        except ValueError as exc:
+            return redirect("/settings", error=str(exc))
+    elif app_settings.encrypted_telegram_proxy:
+        effective_proxy = cipher.decrypt(app_settings.encrypted_telegram_proxy)
+    else:
+        effective_proxy = None
+    try:
+        async with TelegramClient(bot_token.strip(), effective_proxy) as client:
+            bot = await client.get_me()
+    except (TelegramError, ValueError) as exc:
+        return redirect("/settings", error=str(exc))
+    app_settings.encrypted_telegram_token = cipher.encrypt(bot_token.strip())
+    app_settings.encrypted_telegram_proxy = (
+        cipher.encrypt(effective_proxy) if effective_proxy else None
+    )
+    app_settings.telegram_bot_username = bot.get("username")
+    app_settings.telegram_chat_id = chat_id.strip() or None
+    await session.commit()
+    return redirect("/settings", message=f"Telegram bot @{bot.get('username', 'unknown')} saved.")
+
+
+@router.post("/settings/telegram/detect-admin")
+async def detect_telegram_admin(
+    session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)
+):
+    app_settings = await load_app_settings(session)
+    if not app_settings.encrypted_telegram_token:
+        return redirect("/settings", error="Save a Telegram bot first.")
+    token = TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_token)
+    proxy = (
+        TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_proxy)
+        if app_settings.encrypted_telegram_proxy
+        else None
+    )
+    try:
+        async with TelegramClient(token, proxy) as client:
+            admin = await client.latest_start_chat()
+    except TelegramError as exc:
+        return redirect("/settings", error=str(exc))
+    if not admin:
+        return redirect(
+            "/settings", error="No /start message found. Send /start to the bot and try again."
+        )
+    app_settings.telegram_chat_id = admin[0]
+    await session.commit()
+    return redirect("/settings", message=f"Telegram admin {admin[1]} connected.")
+
+
+@router.post("/settings/telegram/test")
+async def test_telegram(
+    session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)
+):
+    app_settings = await load_app_settings(session)
+    if not app_settings.encrypted_telegram_token or not app_settings.telegram_chat_id:
+        return redirect("/settings", error="Connect a Telegram bot and admin first.")
+    token = TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_token)
+    proxy = (
+        TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_proxy)
+        if app_settings.encrypted_telegram_proxy
+        else None
+    )
+    try:
+        async with TelegramClient(token, proxy) as client:
+            await client.send_message(app_settings.telegram_chat_id, "CFDNS test notification ✅")
+    except TelegramError as exc:
+        return redirect("/settings", error=str(exc))
+    return redirect("/settings", message="Test notification sent.")
 
 
 @router.post("/ovh/accounts")
