@@ -4,6 +4,7 @@ import json
 import httpx
 import pytest
 
+from app.models import OVHService
 from app.ovh import OVHClient, parse_token
 from app.ovh_services import normalize_service
 
@@ -143,3 +144,11 @@ def test_normalize_service_extracts_ip_ranges_and_price() -> None:
     assert normalized["service_type"] == "dedicatedServer"
     assert json.loads(normalized["ips"]) == ["192.0.2.5/32", "2001:db8::/64"]
     assert normalized["price"] == "1999 EUR"
+
+
+@pytest.mark.parametrize(
+    ("price", "expected"),
+    [("$0.00 USD", True), ("0 EUR", True), ("$75.89 USD", False), (None, False)],
+)
+def test_zero_price_detection(price: str | None, expected: bool) -> None:
+    assert OVHService(price=price).has_zero_price is expected

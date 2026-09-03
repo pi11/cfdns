@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -68,6 +70,18 @@ class OVHService(TimestampMixin, Base):
     @property
     def ip_list(self) -> list[str]:
         return json.loads(self.ips) if self.ips else []
+
+    @property
+    def has_zero_price(self) -> bool:
+        if not self.price:
+            return False
+        match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", self.price)
+        if not match:
+            return False
+        try:
+            return Decimal(match.group().replace(",", "")) == 0
+        except InvalidOperation:
+            return False
 
 
 class Zone(TimestampMixin, Base):

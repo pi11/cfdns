@@ -551,6 +551,7 @@ async def ovh_dashboard(
     request: Request,
     q: str = Query(default="", max_length=300),
     account_id: str = "",
+    hide_included: bool = False,
     session: AsyncSession = Depends(get_db),
 ):
     selected_account_id = int(account_id) if account_id.isdigit() else None
@@ -581,14 +582,50 @@ async def ovh_dashboard(
             .order_by(OVHService.account_id, OVHService.name)
         )
     )
+    if hide_included:
+        services = [service for service in services if not service.has_zero_price]
+    service_groups = [
+        list(group)
+        for _account_id, group in groupby(services, key=lambda service: service.account_id)
+    ]
+
+    def ovh_account_filter_url(target_account_id: int) -> str:
+        params = {
+            "q": q,
+            "account_id": "" if selected_account_id == target_account_id else target_account_id,
+        }
+        if hide_included:
+            params["hide_included"] = "true"
+        return f"/ovh?{urlencode(params)}"
+
     return templates.TemplateResponse(
         request,
         "ovh.html",
         {
             "accounts": accounts,
+            "account_color_indexes": {
+                account.id: index % 6 for index, account in enumerate(accounts)
+            },
+            "account_colors": {
+                account.id: (
+                    "#60a5fa",
+                    "#34d399",
+                    "#f59e0b",
+                    "#c084fc",
+                    "#fb7185",
+                    "#22d3ee",
+                )[index % 6]
+                for index, account in enumerate(accounts)
+            },
             "services": services,
+            "service_groups": service_groups,
+            "expand_account_groups": bool(q or selected_account_id),
+            "account_filter_urls": {
+                account.id: ovh_account_filter_url(account.id) for account in accounts
+            },
             "q": q,
             "account_id": selected_account_id,
+            "hide_included": hide_included,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
         },

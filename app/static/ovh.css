@@ -4,13 +4,37 @@
 .ovh-match { display: block; width: max-content; max-width: 100%; margin-top: 7px; padding: 4px 7px; border: 1px solid #31506c; border-radius: 5px; background: #142536; color: #8fc9f5; text-decoration: none; font-size: 11px; }
 .ovh-match small { color: #819bb0; }
 .ovh-summary { grid-template-columns: repeat(3, 1fr); }
-.ovh-filters { grid-template-columns: minmax(300px, 1fr) 220px auto; }
+.ovh-filters { grid-template-columns: minmax(300px, 1fr) 220px auto auto; align-items: center; }
+.ovh-filter-check { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.ovh-filter-check input { width: auto; margin: 0; }
 .ovh-table td code { display: block; }
 .ovh-table td code + code { margin-top: 3px; }
 .ovh-ip-link { display: block; width: max-content; max-width: 100%; color: #8fc9f5; text-decoration: none; }
 .ovh-ip-link + .ovh-ip-link { margin-top: 3px; }
 .ovh-ip-link:hover { text-decoration: underline; }
+.ovh-service-link { display: block; color: inherit; font-weight: 700; text-decoration: none; }
+.ovh-canonical-link { display: block; color: var(--muted); font-size: 12px; text-decoration: none; }
+.ovh-service-link:hover, .ovh-canonical-link:hover { text-decoration: underline; }
+.ovh-account-row { background: transparent; }
+.ovh-account-cell { border-left: 0; }
+.ovh-account-color-0 { --account-color: #60a5fa; }
+.ovh-account-color-1 { --account-color: #34d399; }
+.ovh-account-color-2 { --account-color: #f59e0b; }
+.ovh-account-color-3 { --account-color: #c084fc; }
+.ovh-account-color-4 { --account-color: #fb7185; }
+.ovh-account-color-5 { --account-color: #22d3ee; }
+.ovh-account-summary td { padding: 0; border-top: 1px solid var(--border); background: #101722; }
+.ovh-account-toggle { display: flex; width: 100%; padding: 14px 18px; align-items: center; gap: 10px; border: 0; border-radius: 0; background: transparent; text-align: left; }
+.ovh-account-toggle:hover { border: 0; background: #182130; }
+.ovh-account-toggle a, .ovh-account-link { color: var(--account-color); font-weight: 700; text-decoration: none; }
+.ovh-account-list-link { color: inherit; font-weight: 700; text-decoration: none; }
+.ovh-account-toggle a:hover, .ovh-account-link:hover, .ovh-account-list-link:hover { text-decoration: underline; }
+.ovh-account-toggle small { margin-left: auto; }
+.ovh-account-chevron { display: inline-block; color: var(--account-color); font-size: 22px; line-height: 1; transition: transform .15s ease; }
+.ovh-account-toggle[aria-expanded="true"] .ovh-account-chevron { transform: rotate(90deg); }
+.ovh-service-row[hidden] { display: none; }
 .connect-form label small { display: block; margin-top: 5px; font-weight: 400; }
 .ovh-connect-form form { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
 .ovh-connect-form form button { justify-self: start; }
 @media (max-width: 850px) { .ovh-filters, .ovh-summary, .ovh-connect-form form { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .ovh-account-toggle { align-items: flex-start; flex-wrap: wrap; } .ovh-account-toggle small { width: 100%; margin-left: 32px; } }
