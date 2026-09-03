@@ -90,6 +90,7 @@ class AppSettings(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     encrypted_telegram_token: Mapped[str | None] = mapped_column(Text)
     encrypted_telegram_proxy: Mapped[str | None] = mapped_column(Text)
+    encrypted_global_proxy: Mapped[str | None] = mapped_column(Text)
     telegram_bot_username: Mapped[str | None] = mapped_column(String(100))
     telegram_chat_id: Mapped[str | None] = mapped_column(String(32))
     hide_included_services: Mapped[bool] = mapped_column(
@@ -107,6 +108,46 @@ class SSLNotificationState(TimestampMixin, Base):
     )
     ip_address: Mapped[str] = mapped_column(String(45))
     state_key: Mapped[str] = mapped_column(String(64))
+
+
+class ATWAccount(TimestampMixin, Base):
+    __tablename__ = "atw_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    username: Mapped[str] = mapped_column(String(253))
+    encrypted_token: Mapped[str] = mapped_column(Text)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_sync_error: Mapped[str | None] = mapped_column(Text)
+    services: Mapped[list[ATWService]] = relationship(
+        back_populates="account", cascade="all, delete-orphan"
+    )
+
+
+class ATWService(TimestampMixin, Base):
+    __tablename__ = "atw_services"
+    __table_args__ = (
+        UniqueConstraint("account_id", "atw_id"),
+        Index("ix_atw_services_ips", "ips"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("atw_accounts.id", ondelete="CASCADE"))
+    atw_id: Mapped[str] = mapped_column(String(160))
+    customer_id: Mapped[str] = mapped_column(String(64))
+    customer_name: Mapped[str | None] = mapped_column(String(253))
+    name: Mapped[str] = mapped_column(String(253), index=True)
+    service_type: Mapped[str] = mapped_column(String(100), default="unknown")
+    status: Mapped[str | None] = mapped_column(String(64))
+    region: Mapped[str | None] = mapped_column(String(100))
+    ips: Mapped[str | None] = mapped_column(Text)
+    price: Mapped[str | None] = mapped_column(String(100))
+    raw_json: Mapped[str | None] = mapped_column(Text)
+    account: Mapped[ATWAccount] = relationship(back_populates="services")
+
+    @property
+    def ip_list(self) -> list[str]:
+        return json.loads(self.ips) if self.ips else []
 
 
 class Zone(TimestampMixin, Base):

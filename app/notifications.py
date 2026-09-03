@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.models import AppSettings, DNSRecord, SSLNotificationState
+from app.proxy import global_proxy
 from app.security import TokenCipher
 from app.ssl_checker import EndpointCheck
 from app.telegram import TelegramClient, TelegramError
@@ -51,7 +52,7 @@ async def notify_ssl_results(
     proxy = (
         TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_proxy)
         if app_settings.encrypted_telegram_proxy
-        else None
+        else await global_proxy(session, settings)
     )
     now = datetime.now(UTC)
     async with TelegramClient(token, proxy) as client:

@@ -21,21 +21,66 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from app.atw import ATWClient, ATWError
+from app.atw_services import sync_atw_account
 from app.auth import COOKIE_NAME, session_token
 from app.cloudflare import CloudflareClient, CloudflareError
 from app.config import Settings, get_settings
 from app.database import get_db
-from app.models import Account, AppSettings, DNSRecord, OVHAccount, OVHService, SSLCheckResult, Zone
+from app.models import (
+    Account,
+    AppSettings,
+    ATWAccount,
+    ATWService,
+    DNSRecord,
+    OVHAccount,
+    OVHService,
+    SSLCheckResult,
+    SSLNotificationState,
+    Zone,
+)
 from app.ovh import OVHClient, OVHError
 from app.ovh_services import sync_ovh_account
+from app.providers import PROVIDERS
+from app.proxy import global_proxy, validate_proxy_url
 from app.schemas import DNSRecordInput
 from app.security import TokenCipher
 from app.services import apply_remote_record, sync_account
 from app.ssl_checker import ELIGIBLE_RECORD_TYPES, check_and_store_record
-from app.telegram import TelegramClient, TelegramError, validate_proxy_url
+from app.telegram import TelegramClient, TelegramError
 
 router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+async def provider_context(session: AsyncSession) -> dict[str, object]:
+    integrations = []
+    for item in PROVIDERS:
+        account_count = int(
+            await session.scalar(select(func.count()).select_from(item.account_model)) or 0
+        )
+        integrations.append(
+            {
+                "id": item.id,
+                "label": item.label,
+                "description": item.description,
+                "route": item.route,
+                "account_count": account_count,
+                "enabled": account_count > 0,
+            }
+        )
+    return {
+        "integrations": integrations,
+        "enabled_integrations": [item for item in integrations if item["enabled"]],
+    }
+
+
+async def render_template(
+    request: Request, session: AsyncSession, name: str, context: dict | None = None
+):
+    values = await provider_context(session)
+    values.update(context or {})
+    return templates.TemplateResponse(request, name, values)
 
 
 async def load_app_settings(session: AsyncSession) -> AppSettings:
@@ -50,6 +95,8 @@ async def load_app_settings(session: AsyncSession) -> AppSettings:
 async def ovh_matches_for_records(
     session: AsyncSession, records: list[DNSRecord]
 ) -> dict[int, list[OVHService]]:
+    if not await session.scalar(select(OVHAccount.id).limit(1)):
+        return {}
     services = list(
         await session.scalars(
             select(OVHService).options(joinedload(OVHService.account)).order_by(OVHService.name)
@@ -63,6 +110,37 @@ async def ovh_matches_for_records(
             except ValueError:
                 continue
     matches: dict[int, list[OVHService]] = {}
+    for record in records:
+        if record.record_type not in {"A", "AAAA"}:
+            continue
+        try:
+            address = ipaddress.ip_address(record.content.strip())
+        except ValueError:
+            continue
+        found = [service for network, service in networks if address in network]
+        if found:
+            matches[record.id] = list(dict.fromkeys(found))
+    return matches
+
+
+async def atw_matches_for_records(
+    session: AsyncSession, records: list[DNSRecord]
+) -> dict[int, list[ATWService]]:
+    if not await session.scalar(select(ATWAccount.id).limit(1)):
+        return {}
+    services = list(
+        await session.scalars(
+            select(ATWService).options(joinedload(ATWService.account)).order_by(ATWService.name)
+        )
+    )
+    networks = []
+    for service in services:
+        for value in service.ip_list:
+            try:
+                networks.append((ipaddress.ip_network(value, strict=False), service))
+            except ValueError:
+                continue
+    matches = {}
     for record in records:
         if record.record_type not in {"A", "AAAA"}:
             continue
@@ -231,6 +309,7 @@ async def dashboard(
         statement = statement.offset((page - 1) * page_size).limit(page_size)
     records = list(await session.scalars(statement))
     ovh_matches = await ovh_matches_for_records(session, records)
+    atw_matches = await atw_matches_for_records(session, records)
     zone_groups = [
         list(group) for _zone_id, group in groupby(records, key=lambda record: record.zone_id)
     ]
@@ -300,6 +379,7 @@ async def dashboard(
         "accounts": accounts,
         "records": records,
         "ovh_matches": ovh_matches,
+        "atw_matches": atw_matches,
         "zone_groups": zone_groups,
         "expand_zone_groups": bool(q),
         "q": q,
@@ -329,7 +409,9 @@ async def dashboard(
         "error": request.query_params.get("error"),
     }
     template = "partials/records.html" if request.headers.get("HX-Request") else "index.html"
-    return templates.TemplateResponse(request, template, context)
+    if template == "partials/records.html":
+        return templates.TemplateResponse(request, template, context)
+    return await render_template(request, session, template, context)
 
 
 @router.post("/accounts")
@@ -342,7 +424,10 @@ async def add_account(
     if await session.scalar(select(Account).where(Account.name == name.strip())):
         return redirect("/", error="An account with this name already exists.")
     try:
-        async with CloudflareClient(api_token.strip(), settings.cloudflare_api_base) as client:
+        proxy = await global_proxy(session, settings)
+        async with CloudflareClient(
+            api_token.strip(), settings.cloudflare_api_base, proxy_url=proxy
+        ) as client:
             await client.verify_token()
         account = Account(
             name=name.strip(),
@@ -391,7 +476,9 @@ async def new_record_form(request: Request, zone_id: int, session: AsyncSession 
     )
     if not zone:
         raise HTTPException(404, "Zone not found")
-    return templates.TemplateResponse(request, "record_form.html", {"zone": zone, "record": None})
+    return await render_template(
+        request, session, "record_form.html", {"zone": zone, "record": None}
+    )
 
 
 @router.post("/zones/{zone_id}/records")
@@ -424,8 +511,9 @@ async def create_record(
         priority=priority,
     )
     token = TokenCipher(settings.encryption_key).decrypt(zone.account.encrypted_token)
+    proxy = await global_proxy(session, settings)
     try:
-        async with CloudflareClient(token, settings.cloudflare_api_base) as client:
+        async with CloudflareClient(token, settings.cloudflare_api_base, proxy_url=proxy) as client:
             remote = await client.create_record(zone.cloudflare_id, data.cloudflare_payload())
         record = DNSRecord(
             zone_id=zone.id, cloudflare_id=remote["id"], local_comment=local_comment or None
@@ -448,8 +536,9 @@ async def edit_record_form(
     request: Request, record_id: int, session: AsyncSession = Depends(get_db)
 ):
     record = await load_record(session, record_id)
-    return templates.TemplateResponse(
+    return await render_template(
         request,
+        session,
         "record_form.html",
         {"zone": record.zone, "record": record, "error": request.query_params.get("error")},
     )
@@ -481,8 +570,9 @@ async def update_record(
         priority=priority,
     )
     token = TokenCipher(settings.encryption_key).decrypt(record.zone.account.encrypted_token)
+    proxy = await global_proxy(session, settings)
     try:
-        async with CloudflareClient(token, settings.cloudflare_api_base) as client:
+        async with CloudflareClient(token, settings.cloudflare_api_base, proxy_url=proxy) as client:
             remote = await client.update_record(
                 record.zone.cloudflare_id, record.cloudflare_id, data.cloudflare_payload()
             )
@@ -544,6 +634,7 @@ async def toggle_ssl_check(
             {
                 "record": record,
                 "ovh_matches": await ovh_matches_for_records(session, [record]),
+                "atw_matches": await atw_matches_for_records(session, [record]),
                 "ssl_eligible_types": ELIGIBLE_RECORD_TYPES,
                 "proxy_status": current_proxy_status,
                 "proxy_filter_urls": {
@@ -610,8 +701,9 @@ async def ovh_dashboard(
             params["hide_included"] = "true"
         return f"/ovh?{urlencode(params)}"
 
-    return templates.TemplateResponse(
+    return await render_template(
         request,
+        session,
         "ovh.html",
         {
             "accounts": accounts,
@@ -654,23 +746,24 @@ async def settings_page(
     app_settings = await load_app_settings(session)
     await session.commit()
     cipher = TokenCipher(config.encryption_key)
-    telegram_token = (
-        cipher.decrypt(app_settings.encrypted_telegram_token)
-        if app_settings.encrypted_telegram_token
-        else ""
-    )
     telegram_proxy = (
         cipher.decrypt(app_settings.encrypted_telegram_proxy)
         if app_settings.encrypted_telegram_proxy
         else ""
     )
-    return templates.TemplateResponse(
+    configured_global_proxy = (
+        cipher.decrypt(app_settings.encrypted_global_proxy)
+        if app_settings.encrypted_global_proxy
+        else ""
+    )
+    return await render_template(
         request,
+        session,
         "settings.html",
         {
             "settings": app_settings,
-            "telegram_token": telegram_token,
             "telegram_proxy": telegram_proxy,
+            "global_proxy": configured_global_proxy,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
         },
@@ -687,9 +780,28 @@ async def save_preferences(
     return redirect("/settings", message="Preferences saved.")
 
 
+@router.post("/settings/proxy")
+async def save_global_proxy(
+    proxy_url: str = Form(""),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    app_settings = await load_app_settings(session)
+    if proxy_url.strip():
+        try:
+            proxy = validate_proxy_url(proxy_url)
+        except ValueError as exc:
+            return redirect("/settings", error=str(exc))
+        app_settings.encrypted_global_proxy = TokenCipher(settings.encryption_key).encrypt(proxy)
+    else:
+        app_settings.encrypted_global_proxy = None
+    await session.commit()
+    return redirect("/settings", message="Global API proxy saved.")
+
+
 @router.post("/settings/telegram")
 async def save_telegram(
-    bot_token: str = Form(min_length=1),
+    bot_token: str = Form(""),
     chat_id: str = Form(""),
     proxy_url: str = Form(""),
     clear_proxy: bool = Form(False),
@@ -698,30 +810,49 @@ async def save_telegram(
 ):
     app_settings = await load_app_settings(session)
     cipher = TokenCipher(settings.encryption_key)
+    if bot_token.strip():
+        effective_token = bot_token.strip()
+    elif app_settings.encrypted_telegram_token:
+        effective_token = cipher.decrypt(app_settings.encrypted_telegram_token)
+    else:
+        return redirect("/settings", error="Bot token is required when connecting a bot.")
     if clear_proxy:
-        effective_proxy = None
+        specific_proxy = None
     elif proxy_url.strip():
         try:
-            effective_proxy = validate_proxy_url(proxy_url)
+            specific_proxy = validate_proxy_url(proxy_url)
         except ValueError as exc:
             return redirect("/settings", error=str(exc))
     elif app_settings.encrypted_telegram_proxy:
-        effective_proxy = cipher.decrypt(app_settings.encrypted_telegram_proxy)
+        specific_proxy = cipher.decrypt(app_settings.encrypted_telegram_proxy)
     else:
-        effective_proxy = None
+        specific_proxy = None
+    request_proxy = specific_proxy or await global_proxy(session, settings)
     try:
-        async with TelegramClient(bot_token.strip(), effective_proxy) as client:
+        async with TelegramClient(effective_token, request_proxy) as client:
             bot = await client.get_me()
     except (TelegramError, ValueError) as exc:
         return redirect("/settings", error=str(exc))
-    app_settings.encrypted_telegram_token = cipher.encrypt(bot_token.strip())
+    app_settings.encrypted_telegram_token = cipher.encrypt(effective_token)
     app_settings.encrypted_telegram_proxy = (
-        cipher.encrypt(effective_proxy) if effective_proxy else None
+        cipher.encrypt(specific_proxy) if specific_proxy else None
     )
     app_settings.telegram_bot_username = bot.get("username")
     app_settings.telegram_chat_id = chat_id.strip() or None
     await session.commit()
     return redirect("/settings", message=f"Telegram bot @{bot.get('username', 'unknown')} saved.")
+
+
+@router.post("/settings/telegram/remove")
+async def remove_telegram_bot(session: AsyncSession = Depends(get_db)):
+    app_settings = await load_app_settings(session)
+    app_settings.encrypted_telegram_token = None
+    app_settings.encrypted_telegram_proxy = None
+    app_settings.telegram_bot_username = None
+    app_settings.telegram_chat_id = None
+    await session.execute(delete(SSLNotificationState))
+    await session.commit()
+    return redirect("/settings", message="Telegram bot and notification state removed.")
 
 
 @router.post("/settings/telegram/detect-admin")
@@ -735,7 +866,7 @@ async def detect_telegram_admin(
     proxy = (
         TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_proxy)
         if app_settings.encrypted_telegram_proxy
-        else None
+        else await global_proxy(session, settings)
     )
     try:
         async with TelegramClient(token, proxy) as client:
@@ -762,7 +893,7 @@ async def test_telegram(
     proxy = (
         TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_proxy)
         if app_settings.encrypted_telegram_proxy
-        else None
+        else await global_proxy(session, settings)
     )
     try:
         async with TelegramClient(token, proxy) as client:
@@ -796,7 +927,8 @@ async def add_ovh_account(
             }
         )
         api_base = settings.ovh_ca_api_base if endpoint == "ovh-ca" else settings.ovh_api_base
-        async with OVHClient(api_token, api_base) as client:
+        proxy = await global_proxy(session, settings)
+        async with OVHClient(api_token, api_base, proxy_url=proxy) as client:
             await client.verify_token()
         account = OVHAccount(
             name=clean_name,
@@ -839,6 +971,125 @@ async def delete_ovh_account(account_id: int, session: AsyncSession = Depends(ge
     return redirect("/ovh", message="OVH account and its local cache were removed.")
 
 
+@router.get("/atw", response_class=HTMLResponse)
+async def atw_dashboard(
+    request: Request,
+    q: str = Query(default="", max_length=300),
+    account_id: str = "",
+    session: AsyncSession = Depends(get_db),
+):
+    selected_account_id = int(account_id) if account_id.isdigit() else None
+    accounts = list(
+        await session.scalars(
+            select(ATWAccount).options(selectinload(ATWAccount.services)).order_by(ATWAccount.name)
+        )
+    )
+    conditions = []
+    if selected_account_id:
+        conditions.append(ATWService.account_id == selected_account_id)
+    if q:
+        pattern = f"%{q}%"
+        conditions.append(
+            or_(
+                ATWService.name.ilike(pattern),
+                ATWService.service_type.ilike(pattern),
+                ATWService.ips.ilike(pattern),
+                ATWService.customer_name.ilike(pattern),
+            )
+        )
+    services = list(
+        await session.scalars(
+            select(ATWService)
+            .options(joinedload(ATWService.account))
+            .where(*conditions)
+            .order_by(ATWService.account_id, ATWService.name)
+        )
+    )
+
+    def account_url(target_id: int) -> str:
+        params = {"q": q, "account_id": "" if selected_account_id == target_id else target_id}
+        return f"/atw?{urlencode(params)}"
+
+    return await render_template(
+        request,
+        session,
+        "atw.html",
+        {
+            "accounts": accounts,
+            "services": services,
+            "service_groups": [
+                list(group)
+                for _account_id, group in groupby(services, key=lambda item: item.account_id)
+            ],
+            "account_id": selected_account_id,
+            "account_filter_urls": {account.id: account_url(account.id) for account in accounts},
+            "expand_account_groups": bool(q or selected_account_id),
+            "q": q,
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@router.post("/atw/accounts")
+async def add_atw_account(
+    name: str = Form(min_length=1, max_length=120),
+    username: str = Form(min_length=1, max_length=253),
+    api_token: str = Form(min_length=1),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    clean_name = name.strip()
+    clean_username = username.strip()
+    if await session.scalar(select(ATWAccount).where(ATWAccount.name == clean_name)):
+        return redirect("/atw", error="An ATW account with this name already exists.")
+    try:
+        proxy = await global_proxy(session, settings)
+        async with ATWClient(
+            api_token.strip(), settings.atw_api_base, clean_username, proxy_url=proxy
+        ) as client:
+            await client.verify_token(clean_username)
+        account = ATWAccount(
+            name=clean_name,
+            username=clean_username,
+            encrypted_token=TokenCipher(settings.encryption_key).encrypt(api_token.strip()),
+        )
+        session.add(account)
+        await session.commit()
+        await session.refresh(account)
+        await sync_atw_account(session, account, settings)
+    except (ATWError, ValueError) as exc:
+        await session.rollback()
+        return redirect("/atw", error=str(exc))
+    return redirect("/atw", message=f"ATW account {account.name} connected and synchronized.")
+
+
+@router.post("/atw/accounts/{account_id}/sync")
+async def synchronize_atw_account(
+    account_id: int,
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    account = await session.get(ATWAccount, account_id)
+    if not account:
+        raise HTTPException(404, "ATW account not found")
+    try:
+        await sync_atw_account(session, account, settings)
+    except Exception as exc:
+        return redirect("/atw", error=f"Synchronization failed: {exc}")
+    return redirect("/atw", message=f"ATW account {account.name} synchronized.")
+
+
+@router.post("/atw/accounts/{account_id}/delete")
+async def delete_atw_account(account_id: int, session: AsyncSession = Depends(get_db)):
+    account = await session.get(ATWAccount, account_id)
+    if not account:
+        raise HTTPException(404, "ATW account not found")
+    await session.delete(account)
+    await session.commit()
+    return redirect("/atw", message="ATW account and its local cache were removed.")
+
+
 @router.post("/records/{record_id}/delete")
 async def delete_record(
     request: Request,
@@ -848,8 +1099,9 @@ async def delete_record(
 ):
     record = await load_record(session, record_id)
     token = TokenCipher(settings.encryption_key).decrypt(record.zone.account.encrypted_token)
+    proxy = await global_proxy(session, settings)
     try:
-        async with CloudflareClient(token, settings.cloudflare_api_base) as client:
+        async with CloudflareClient(token, settings.cloudflare_api_base, proxy_url=proxy) as client:
             await client.delete_record(record.zone.cloudflare_id, record.cloudflare_id)
     except CloudflareError as exc:
         if request.headers.get("HX-Request"):
@@ -880,6 +1132,7 @@ async def bulk_delete_records(
         )
     )
     semaphore = asyncio.Semaphore(5)
+    proxy = await global_proxy(session, settings)
 
     async def delete_from_cloudflare(record: DNSRecord) -> tuple[int, str, str | None]:
         try:
@@ -887,7 +1140,9 @@ async def bulk_delete_records(
                 record.zone.account.encrypted_token
             )
             async with semaphore:
-                async with CloudflareClient(token, settings.cloudflare_api_base) as client:
+                async with CloudflareClient(
+                    token, settings.cloudflare_api_base, proxy_url=proxy
+                ) as client:
                     await client.delete_record(record.zone.cloudflare_id, record.cloudflare_id)
             return record.id, record.name, None
         except (CloudflareError, ValueError) as exc:

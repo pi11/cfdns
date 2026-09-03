@@ -11,13 +11,18 @@ class CloudflareError(RuntimeError):
 
 class CloudflareClient:
     def __init__(
-        self, token: str, base_url: str, transport: httpx.AsyncBaseTransport | None = None
+        self,
+        token: str,
+        base_url: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+        proxy_url: str | None = None,
     ):
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             timeout=30,
             transport=transport,
+            proxy=proxy_url,
         )
 
     async def __aenter__(self) -> CloudflareClient:

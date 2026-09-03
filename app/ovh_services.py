@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.models import OVHAccount, OVHService
 from app.ovh import OVHClient
+from app.proxy import global_proxy
 from app.security import TokenCipher
 
 
@@ -80,8 +81,9 @@ async def sync_ovh_account(
 ) -> None:
     token = TokenCipher(settings.encryption_key).decrypt(account.encrypted_token)
     api_base = settings.ovh_ca_api_base if account.endpoint == "ovh-ca" else settings.ovh_api_base
+    proxy = await global_proxy(session, settings)
     try:
-        async with OVHClient(token, api_base) as client:
+        async with OVHClient(token, api_base, proxy_url=proxy) as client:
             remote_services = await client.list_services()
         existing = {
             item.ovh_id: item

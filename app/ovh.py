@@ -40,11 +40,17 @@ class OVHClient:
     """Minimal, deliberately read-only OVH API client."""
 
     def __init__(
-        self, token: str, base_url: str, transport: httpx.AsyncBaseTransport | None = None
+        self,
+        token: str,
+        base_url: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+        proxy_url: str | None = None,
     ):
         self.application_key, self.application_secret, self.consumer_key = parse_token(token)
         self.base_url = base_url.rstrip("/")
-        self._client = httpx.AsyncClient(base_url=self.base_url, timeout=30, transport=transport)
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=30, transport=transport, proxy=proxy_url
+        )
 
     async def __aenter__(self) -> OVHClient:
         return self

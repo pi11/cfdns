@@ -9,6 +9,7 @@ CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local
 - Multiple Cloudflare accounts connected with scoped API tokens
 - Multiple read-only OVH accounts with a searchable service cache
 - Automatic OVH service matching for Cloudflare A and AAAA record IPs
+- Multiple read-only ATW accounts with customer services, VPS details, and DNS IP matching
 - Telegram SSL expiry alerts at 30, 14, 7, and 1 day, with failure and recovery alerts
 - Fernet-encrypted token storage
 - Full DNS record create, edit, and delete workflow
@@ -32,6 +33,18 @@ possible; product-specific GET rights let synchronization obtain server and VPS 
 addresses.
 Select Canada / North America for credentials created at `ca.api.ovh.com`; OVH API
 credentials are region-specific and will be rejected by the European endpoint.
+
+## ATW integration
+
+The ATW services tab connects with a display name, the ATW username/email, and an API
+token. Tokens are encrypted at rest, and CFDNS only uses the documented GET endpoints
+with the `X-Token` header. It discovers every customer available to the user, caches
+billing services, and enriches linked VPS services with their detailed addresses.
+
+ATW IP addresses are clickable from the services table and matched against Cloudflare
+A and AAAA records on the DNS dashboard. See the current
+[ATW API documentation](https://admin.atw.hu/api-documentation) for token management
+and endpoint details.
 
 ## Installation
 
@@ -191,3 +204,10 @@ renewed. Notifications run whenever enabled SSL checks are executed, including v
 
 The Settings page also controls whether zero-priced, included OVH service components
 are always hidden from the OVH services table.
+
+### Global API proxy
+
+Settings can define an encrypted HTTP, HTTPS, or SOCKS5 proxy URL used by all
+Cloudflare, OVH, ATW, and Telegram API requests. A Telegram-specific proxy, when
+configured, overrides the global proxy only for Telegram. Clear the global proxy field
+and save to return all providers without a proxy.

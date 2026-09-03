@@ -1,0 +1,12 @@
+.atw-summary { grid-template-columns: repeat(3, 1fr); }
+.atw-filters { grid-template-columns: minmax(300px, 1fr) 220px auto; }
+.atw-account-toggle a, .atw-account-link { color: #4ade80; font-weight: 700; text-decoration: none; }
+.atw-account-toggle a:hover, .atw-account-link:hover { text-decoration: underline; }
+.atw-service-link { color: inherit; font-weight: 700; text-decoration: none; }
+.atw-service-link:hover { text-decoration: underline; }
+.atw-ip-link { display: block; width: max-content; color: #8fc9f5; text-decoration: none; }
+.atw-ip-link:hover { text-decoration: underline; }
+.atw-match { display: block; width: max-content; max-width: 100%; margin-top: 7px; padding: 4px 7px; border: 1px solid #34734e; border-radius: 5px; background: #142b20; color: #78dfa0; text-decoration: none; font-size: 11px; }
+.atw-match small { color: #86ad95; }
+.atw-service-row[hidden] { display: none; }
+@media(max-width:850px) { .atw-summary, .atw-filters { grid-template-columns: 1fr; } }

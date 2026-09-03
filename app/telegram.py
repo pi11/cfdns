@@ -1,21 +1,14 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
+
+from app.proxy import validate_proxy_url
 
 
 class TelegramError(RuntimeError):
     pass
-
-
-def validate_proxy_url(proxy_url: str) -> str:
-    value = proxy_url.strip()
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https", "socks5", "socks5h"} or not parsed.hostname:
-        raise ValueError("Proxy must be a valid HTTP, HTTPS, or SOCKS5 URL.")
-    return value
 
 
 class TelegramClient:

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.cloudflare import CloudflareClient
 from app.config import Settings
 from app.models import Account, DNSRecord, Zone
+from app.proxy import global_proxy
 from app.security import TokenCipher
 
 
@@ -27,8 +28,9 @@ def apply_remote_record(record: DNSRecord, remote: dict) -> None:
 
 async def sync_account(session: AsyncSession, account: Account, settings: Settings) -> None:
     token = TokenCipher(settings.encryption_key).decrypt(account.encrypted_token)
+    proxy = await global_proxy(session, settings)
     try:
-        async with CloudflareClient(token, settings.cloudflare_api_base) as client:
+        async with CloudflareClient(token, settings.cloudflare_api_base, proxy_url=proxy) as client:
             remote_zones = await client.list_zones()
             existing_zones = {
                 zone.cloudflare_id: zone

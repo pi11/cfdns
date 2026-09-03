@@ -16,15 +16,17 @@
   <link rel="stylesheet" href="{{ url_for('static', path='account-filter.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='ovh.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='settings.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='atw.css') }}">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
   <script src="{{ url_for('static', path='bulk-delete.js') }}" defer></script>
   <script src="{{ url_for('static', path='zone-groups.js') }}" defer></script>
   <script src="{{ url_for('static', path='ovh-groups.js') }}" defer></script>
+  <script src="{{ url_for('static', path='atw-groups.js') }}" defer></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/"><span class="brand-mark">CF</span> DNS Manager</a>
-    <nav class="topnav"><a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>DNS</a><a href="/ovh" {% if request.url.path.startswith('/ovh') %}class="active"{% endif %}>OVH services</a><a href="/settings" {% if request.url.path.startswith('/settings') %}class="active"{% endif %}>Settings</a></nav>
+    <nav class="topnav"><a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>DNS</a>{% for integration in enabled_integrations|default([]) %}<a href="{{ integration.route }}" {% if request.url.path.startswith(integration.route) %}class="active"{% endif %}>{{ integration.label }} services</a>{% endfor %}<a href="/settings" {% if request.url.path.startswith('/settings') %}class="active"{% endif %}>Settings</a></nav>
     <span class="subtle">Cloud infrastructure control plane</span>
     {% if request.url.path != '/login' %}<form class="logout" action="/logout" method="post"><button type="submit">Log out</button></form>{% endif %}
   </header>

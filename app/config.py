@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     cloudflare_api_base: str = "https://api.cloudflare.com/client/v4"
     ovh_api_base: str = "https://eu.api.ovh.com/1.0"
     ovh_ca_api_base: str = "https://ca.api.ovh.com/1.0"
+    atw_api_base: str = "https://atw.hu/api"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     admin_password: str = Field(default="cfdns", min_length=1)
