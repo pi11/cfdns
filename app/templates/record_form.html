@@ -12,6 +12,7 @@
       <label>Priority<input name="priority" type="number" min="0" max="65535" value="{{ record.priority if record and record.priority is not none else '' }}" placeholder="For MX/SRV"></label>
       <label class="checkbox"><input name="proxied" type="checkbox" value="true" {% if record and record.proxied %}checked{% endif %}> Proxy through Cloudflare</label>
       <label id="ssl-check-option" class="checkbox"><input name="ssl_check_enabled" type="checkbox" value="true" {% if record and record.ssl_check_enabled %}checked{% endif %}> Check SSL certificate on port 443</label>
+      <label id="ping-check-option" class="checkbox"><input name="ping_check_enabled" type="checkbox" value="true" {% if record and record.ping_check_enabled %}checked{% endif %}> Check reachability with ping</label>
       <label class="full">Cloudflare comment<textarea name="cloudflare_comment" maxlength="100" placeholder="Stored in Cloudflare">{{ record.cloudflare_comment if record and record.cloudflare_comment else '' }}</textarea></label>
       <label class="full">Local comment<textarea name="local_comment" placeholder="Stored only in the local database">{{ record.local_comment if record and record.local_comment else '' }}</textarea></label>
     </div>
@@ -29,6 +30,17 @@
     {% else %}<p class="empty">The first check has not completed yet.</p>{% endif %}
   </section>
   {% endif %}
+  {% if record and record.ping_check_enabled %}
+  <section class="ssl-details">
+    <h2>Ping endpoints</h2>
+    <p>Each resolved IP receives three ICMP echo requests.</p>
+    {% if record.ping_results %}
+    <table><thead><tr><th>IP address</th><th>Status</th><th>Average latency</th><th>Last checked</th><th>Error</th></tr></thead>
+      <tbody>{% for result in record.ping_results %}<tr><td><code>{{ result.ip_address }}</code></td><td><span class="ssl-status {% if result.status == 'reachable' %}ok{% else %}danger{% endif %}">{{ result.status|replace('_', ' ') }}</span></td><td>{{ '%.2f ms'|format(result.latency_ms) if result.latency_ms is not none else '—' }}</td><td>{{ result.checked_at.strftime('%Y-%m-%d %H:%M UTC') }}</td><td class="ssl-error">{{ result.error or '—' }}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% else %}<p class="empty">The first check has not completed yet.</p>{% endif %}
+  </section>
+  {% endif %}
 </section>
 <script>
   (() => {
@@ -36,11 +48,17 @@
     const proxied = document.querySelector('[name="proxied"]');
     const option = document.querySelector('#ssl-check-option');
     const checkbox = option.querySelector('input');
+    const pingOption = document.querySelector('#ping-check-option');
+    const pingCheckbox = pingOption.querySelector('input');
     const refresh = () => {
       const visible = ['A', 'AAAA', 'CNAME'].includes(type.value) && !proxied.checked;
       option.hidden = !visible;
       checkbox.disabled = !visible;
       if (!visible) checkbox.checked = false;
+      const pingVisible = ['A', 'AAAA', 'CNAME'].includes(type.value);
+      pingOption.hidden = !pingVisible;
+      pingCheckbox.disabled = !pingVisible;
+      if (!pingVisible) pingCheckbox.checked = false;
     };
     type.addEventListener('change', refresh);
     proxied.addEventListener('change', refresh);

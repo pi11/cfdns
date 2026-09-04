@@ -35,12 +35,20 @@ from app.models import (
     DNSRecord,
     OVHAccount,
     OVHService,
+    PingCheckResult,
+    PingNotificationState,
     SSLCheckResult,
     SSLNotificationState,
     Zone,
 )
 from app.ovh import OVHClient, OVHError
 from app.ovh_services import sync_ovh_account
+from app.ping_checker import (
+    PING_CONCURRENCY,
+    check_and_store_record as check_and_store_ping_record,
+    inspect_record as inspect_ping_record,
+    store_record_results as store_ping_results,
+)
 from app.providers import PROVIDERS
 from app.proxy import global_proxy, validate_proxy_url
 from app.schemas import DNSRecordInput
@@ -208,6 +216,7 @@ async def load_record(session: AsyncSession, record_id: int) -> DNSRecord:
         .options(
             joinedload(DNSRecord.zone).joinedload(Zone.account),
             selectinload(DNSRecord.ssl_results),
+            selectinload(DNSRecord.ping_results),
         )
         .where(DNSRecord.id == record_id)
     )
@@ -294,6 +303,7 @@ async def dashboard(
         .options(
             joinedload(DNSRecord.zone).joinedload(Zone.account),
             selectinload(DNSRecord.ssl_results),
+            selectinload(DNSRecord.ping_results),
         )
         .where(*conditions)
         .order_by(
@@ -493,6 +503,7 @@ async def create_record(
     local_comment: str = Form(""),
     priority: int | None = Form(None),
     ssl_check_enabled: bool = Form(False),
+    ping_check_enabled: bool = Form(False),
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -516,16 +527,21 @@ async def create_record(
         async with CloudflareClient(token, settings.cloudflare_api_base, proxy_url=proxy) as client:
             remote = await client.create_record(zone.cloudflare_id, data.cloudflare_payload())
         record = DNSRecord(
-            zone_id=zone.id, cloudflare_id=remote["id"], local_comment=local_comment or None
+            zone=zone, cloudflare_id=remote["id"], local_comment=local_comment or None
         )
         apply_remote_record(record, remote)
         record.ssl_check_enabled = (
             ssl_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES and not record.proxied
         )
+        record.ping_check_enabled = (
+            ping_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
+        )
         session.add(record)
         await session.commit()
         if record.ssl_check_enabled:
             await check_and_store_record(session, record)
+        if record.ping_check_enabled:
+            await check_and_store_ping_record(session, record)
     except CloudflareError as exc:
         return redirect(f"/zones/{zone_id}/records/new", error=str(exc))
     return redirect("/", message=f"DNS record {record.name} created.")
@@ -556,6 +572,7 @@ async def update_record(
     local_comment: str = Form(""),
     priority: int | None = Form(None),
     ssl_check_enabled: bool = Form(False),
+    ping_check_enabled: bool = Form(False),
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -581,13 +598,25 @@ async def update_record(
         record.ssl_check_enabled = (
             ssl_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES and not record.proxied
         )
+        record.ping_check_enabled = (
+            ping_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
+        )
         if not record.ssl_check_enabled:
             await session.execute(
                 delete(SSLCheckResult).where(SSLCheckResult.record_id == record.id)
             )
+        if not record.ping_check_enabled:
+            await session.execute(
+                delete(PingCheckResult).where(PingCheckResult.record_id == record.id)
+            )
+            await session.execute(
+                delete(PingNotificationState).where(PingNotificationState.record_id == record.id)
+            )
         await session.commit()
         if record.ssl_check_enabled:
             await check_and_store_record(session, record)
+        if record.ping_check_enabled:
+            await check_and_store_ping_record(session, record)
     except CloudflareError as exc:
         return redirect(f"/records/{record_id}/edit", error=str(exc))
     return redirect("/", message=f"DNS record {record.name} updated.")
@@ -645,6 +674,62 @@ async def toggle_ssl_check(
         )
     state = "enabled" if record.ssl_check_enabled else "disabled"
     return redirect("/", message=f"SSL checks {state} for {record.name}.")
+
+
+@router.post("/records/{record_id}/ping-toggle")
+async def toggle_ping_check(
+    request: Request,
+    record_id: int,
+    enabled: bool = Form(False),
+    session: AsyncSession = Depends(get_db),
+):
+    record = await load_record(session, record_id)
+    record.ping_check_enabled = enabled and record.record_type in ELIGIBLE_RECORD_TYPES
+    if record.ping_check_enabled:
+        await session.commit()
+        await check_and_store_ping_record(session, record)
+    else:
+        await session.execute(delete(PingCheckResult).where(PingCheckResult.record_id == record.id))
+        await session.execute(
+            delete(PingNotificationState).where(PingNotificationState.record_id == record.id)
+        )
+        await session.commit()
+    await session.refresh(record, ["ssl_results", "ping_results"])
+    if request.headers.get("HX-Request"):
+        current_params = parse_qs(
+            urlparse(request.headers.get("HX-Current-URL", "/")).query
+        )
+        current_proxy_status = current_params.get("proxy_status", [""])[0]
+
+        def proxy_url(status: str) -> str:
+            params = {
+                "q": current_params.get("q", [""])[0],
+                "account_id": current_params.get("account_id", [""])[0],
+                "zone_id": current_params.get("zone_id", [""])[0],
+                "record_type": current_params.get("record_type", [""])[0],
+                "proxy_status": "" if current_proxy_status == status else status,
+                "per_page": current_params.get("per_page", ["25"])[0],
+                "page": 1,
+            }
+            return f"/?{urlencode(params)}"
+
+        return templates.TemplateResponse(
+            request,
+            "partials/record_row.html",
+            {
+                "record": record,
+                "ovh_matches": await ovh_matches_for_records(session, [record]),
+                "atw_matches": await atw_matches_for_records(session, [record]),
+                "ssl_eligible_types": ELIGIBLE_RECORD_TYPES,
+                "proxy_status": current_proxy_status,
+                "proxy_filter_urls": {
+                    "proxied": proxy_url("proxied"),
+                    "dns_only": proxy_url("dns_only"),
+                },
+            },
+        )
+    state = "enabled" if record.ping_check_enabled else "disabled"
+    return redirect("/", message=f"Ping checks {state} for {record.name}.")
 
 
 @router.get("/ovh", response_class=HTMLResponse)
@@ -851,6 +936,7 @@ async def remove_telegram_bot(session: AsyncSession = Depends(get_db)):
     app_settings.telegram_bot_username = None
     app_settings.telegram_chat_id = None
     await session.execute(delete(SSLNotificationState))
+    await session.execute(delete(PingNotificationState))
     await session.commit()
     return redirect("/settings", message="Telegram bot and notification state removed.")
 
@@ -1165,3 +1251,51 @@ async def bulk_delete_records(
         await session.execute(delete(DNSRecord).where(DNSRecord.id.in_(deleted_ids)))
         await session.commit()
     return JSONResponse({"deleted_ids": deleted_ids, "errors": errors})
+
+
+@router.post("/records/actions/ping")
+async def ping_selected_records(
+    record_ids: list[int] = Form(),
+    session: AsyncSession = Depends(get_db),
+):
+    unique_ids = list(dict.fromkeys(record_ids))
+    records = list(
+        await session.scalars(
+            select(DNSRecord)
+            .options(joinedload(DNSRecord.zone))
+            .where(
+                DNSRecord.id.in_(unique_ids),
+                DNSRecord.record_type.in_(ELIGIBLE_RECORD_TYPES),
+            )
+        )
+    )
+    semaphore = asyncio.Semaphore(PING_CONCURRENCY)
+    inspected = await asyncio.gather(
+        *(inspect_ping_record(record, semaphore) for record in records), return_exceptions=True
+    )
+    results = []
+    for record, checks in zip(records, inspected, strict=True):
+        if isinstance(checks, BaseException):
+            results.append({"record_id": record.id, "name": record.name, "error": str(checks)})
+            continue
+        await store_ping_results(session, record, checks, notify=record.ping_check_enabled)
+        results.append(
+            {
+                "record_id": record.id,
+                "name": record.name,
+                "reachable": sum(check.status == "reachable" for check in checks),
+                "total": len(checks),
+                "error": None,
+            }
+        )
+    found_ids = {record.id for record in records}
+    results.extend(
+        {
+            "record_id": record_id,
+            "name": f"Record #{record_id}",
+            "error": "Not found or not pingable",
+        }
+        for record_id in unique_ids
+        if record_id not in found_ids
+    )
+    return JSONResponse({"results": results})

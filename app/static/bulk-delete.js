@@ -1,5 +1,6 @@
 (() => {
   const actionButton = document.querySelector('#bulk-delete-button');
+  const pingButton = document.querySelector('#bulk-ping-button');
   const modal = document.querySelector('#bulk-delete-modal');
   if (!actionButton || !modal) return;
 
@@ -15,7 +16,9 @@
     const selected = selectedCheckboxes();
     const selectAll = document.querySelector('#select-visible-records');
     actionButton.hidden = selected.length === 0;
+    if (pingButton) pingButton.hidden = selected.length === 0;
     actionButton.querySelector('span').textContent = selected.length;
+    if (pingButton) pingButton.querySelector('span').textContent = selected.length;
     if (selectAll) {
       selectAll.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
       selectAll.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
@@ -44,6 +47,28 @@
   });
 
   cancelButton.addEventListener('click', () => modal.close());
+
+  pingButton?.addEventListener('click', async () => {
+    const selected = selectedCheckboxes();
+    if (!selected.length) return;
+    const body = new FormData();
+    selected.forEach((checkbox) => body.append('record_ids', checkbox.value));
+    pingButton.disabled = true;
+    try {
+      const response = await fetch('/records/actions/ping', {method: 'POST', body});
+      if (!response.ok) throw new Error(await response.text() || 'Ping check failed.');
+      const payload = await response.json();
+      const lines = payload.results.map((item) => item.error
+        ? `${item.name}: ${item.error}`
+        : `${item.name}: ${item.reachable}/${item.total} IPs reachable`);
+      window.alert(`Ping checks completed:\n\n${lines.join('\n')}`);
+      window.location.reload();
+    } catch (error) {
+      window.alert(error.message || 'Ping check failed.');
+    } finally {
+      pingButton.disabled = false;
+    }
+  });
 
   confirmButton.addEventListener('click', async () => {
     const selected = selectedCheckboxes();

@@ -184,6 +184,18 @@ Run the checks every six hours with crontab:
 
 The checker uses the system CA trust store. An invalid chain, hostname mismatch, expired certificate, DNS failure, timeout, or connection failure is stored and displayed as an error. When validation fails after the server presents a certificate, the checker makes an unverified second connection only to capture its expiration date.
 
+## Ping monitoring
+
+Ping monitoring can be enabled per A, AAAA, or CNAME record, including Cloudflare-proxied records. Each resolved IP receives three ICMP echo requests. Results include reachability, average round-trip time, errors, and the last check time. Up to 20 endpoints are checked concurrently. The **Ping selected** action runs an immediate check for selected records without enabling scheduled monitoring.
+
+Run all enabled checks manually or from cron:
+
+```bash
+./scripts/check_ping.sh
+```
+
+The Docker image includes `iputils-ping`. Native installations must provide a working `ping` command. ICMP does not travel through the configured HTTP, HTTPS, or SOCKS5 API proxy; only Telegram delivery uses its configured proxy. Ping failure and recovery alerts are deduplicated per DNS record and resolved IP.
+
 ### Telegram alerts
 
 Open **Settings**, save a bot token created with BotFather, and either enter the
@@ -199,8 +211,8 @@ Use the explicit removal checkbox to clear the proxy.
 Alerts are deduplicated per DNS record and resolved IP. CFDNS sends expiry reminders
 when a certificate enters the 30-, 14-, 7-, and 1-day windows, one alert for an SSL
 failure state, and a recovery message after the certificate becomes healthy or is
-renewed. Notifications run whenever enabled SSL checks are executed, including via
-`scripts/check_ssl.sh`.
+renewed. Notifications run whenever enabled SSL or ping checks are executed, including
+via `scripts/check_ssl.sh` and `scripts/check_ping.sh`.
 
 The Settings page also controls whether zero-priced, included OVH service components
 are always hidden from the OVH services table.

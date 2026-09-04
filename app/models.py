@@ -5,7 +5,17 @@ import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -110,6 +120,18 @@ class SSLNotificationState(TimestampMixin, Base):
     state_key: Mapped[str] = mapped_column(String(64))
 
 
+class PingNotificationState(TimestampMixin, Base):
+    __tablename__ = "ping_notification_states"
+    __table_args__ = (UniqueConstraint("record_id", "ip_address"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    record_id: Mapped[int] = mapped_column(
+        ForeignKey("dns_records.id", ondelete="CASCADE"), index=True
+    )
+    ip_address: Mapped[str] = mapped_column(String(45))
+    state_key: Mapped[str] = mapped_column(String(64))
+
+
 class ATWAccount(TimestampMixin, Base):
     __tablename__ = "atw_accounts"
 
@@ -187,12 +209,23 @@ class DNSRecord(TimestampMixin, Base):
     data_json: Mapped[str | None] = mapped_column(Text)
     priority: Mapped[int | None] = mapped_column(Integer)
     ssl_check_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    ping_check_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     zone: Mapped[Zone] = relationship(back_populates="records")
     ssl_results: Mapped[list[SSLCheckResult]] = relationship(
         back_populates="record", cascade="all, delete-orphan"
     )
+    ping_results: Mapped[list[PingCheckResult]] = relationship(
+        back_populates="record", cascade="all, delete-orphan"
+    )
+
+    @property
+    def ping_display_status(self) -> str:
+        if not self.ping_results:
+            return "pending"
+        all_reachable = all(result.status == "reachable" for result in self.ping_results)
+        return "ok" if all_reachable else "danger"
 
     @property
     def ssl_earliest_expiry(self) -> datetime | None:
@@ -237,3 +270,20 @@ class SSLCheckResult(Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     record: Mapped[DNSRecord] = relationship(back_populates="ssl_results")
+
+
+class PingCheckResult(Base):
+    __tablename__ = "ping_check_results"
+    __table_args__ = (UniqueConstraint("record_id", "ip_address"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    record_id: Mapped[int] = mapped_column(
+        ForeignKey("dns_records.id", ondelete="CASCADE"), index=True
+    )
+    ip_address: Mapped[str] = mapped_column(String(45))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float)
+    error: Mapped[str | None] = mapped_column(Text)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    record: Mapped[DNSRecord] = relationship(back_populates="ping_results")

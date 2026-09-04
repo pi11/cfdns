@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.models import AppSettings, DNSRecord, SSLNotificationState
+from app.models import AppSettings, DNSRecord, PingNotificationState, SSLNotificationState
+from app.ping_checker import PingCheck
 from app.proxy import global_proxy
 from app.security import TokenCipher
 from app.ssl_checker import EndpointCheck
@@ -85,6 +86,68 @@ async def notify_ssl_results(
                     record_id=record.id, ip_address=check.ip_address, state_key=new_key
                 )
                 session.add(state)
+            else:
+                state.state_key = new_key
+        await session.commit()
+
+
+async def notify_ping_results(
+    session: AsyncSession,
+    record: DNSRecord,
+    checks: list[PingCheck],
+    settings: Settings,
+) -> None:
+    app_settings = await session.get(AppSettings, 1)
+    if (
+        not app_settings
+        or not app_settings.encrypted_telegram_token
+        or not app_settings.telegram_chat_id
+    ):
+        return
+    token = TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_token)
+    proxy = (
+        TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_proxy)
+        if app_settings.encrypted_telegram_proxy
+        else await global_proxy(session, settings)
+    )
+    async with TelegramClient(token, proxy) as client:
+        for check in checks:
+            state = await session.scalar(
+                select(PingNotificationState).where(
+                    PingNotificationState.record_id == record.id,
+                    PingNotificationState.ip_address == check.ip_address,
+                )
+            )
+            new_key = "healthy" if check.status == "reachable" else "failure"
+            old_key = state.state_key if state else None
+            message = None
+            if new_key == "failure" and old_key != "failure":
+                message = (
+                    f"🚨 Ping check failed\nHost: {record.name}\nZone: {record.zone.name}"
+                    f"\nIP: {check.ip_address}\nStatus: {check.status}"
+                    + (f"\nError: {check.error}" if check.error else "")
+                )
+            elif new_key == "healthy" and old_key == "failure":
+                latency = (
+                    f"\nAverage latency: {check.latency_ms:.2f} ms"
+                    if check.latency_ms is not None
+                    else ""
+                )
+                message = (
+                    f"✅ Ping recovered\nHost: {record.name}\nZone: {record.zone.name}"
+                    f"\nIP: {check.ip_address}{latency}"
+                )
+            if message:
+                try:
+                    await client.send_message(app_settings.telegram_chat_id, message)
+                except TelegramError:
+                    continue
+            if state is None:
+                session.add(
+                    PingNotificationState(
+                        record_id=record.id, ip_address=check.ip_address, state_key=new_key
+                    )
+                )
             else:
                 state.state_key = new_key
         await session.commit()

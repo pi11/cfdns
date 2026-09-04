@@ -15,7 +15,7 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/cfdns/.venv/bin:$PATH"
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates \
+    && apt-get install --yes --no-install-recommends ca-certificates iputils-ping \
     && rm -rf /var/lib/apt/lists/* \
     && python -m venv /opt/cfdns/.venv \
     && addgroup --system cfdns \
@@ -29,7 +29,7 @@ WORKDIR /opt/cfdns
 COPY --chown=cfdns:cfdns alembic.ini ./
 COPY --chown=cfdns:cfdns migrations ./migrations
 COPY --chown=cfdns:cfdns app ./app
-COPY --chown=cfdns:cfdns scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+COPY --chown=cfdns:cfdns scripts ./scripts
 
 USER cfdns
 EXPOSE 8000

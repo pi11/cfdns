@@ -9,8 +9,16 @@
       <label><input name="enabled" type="checkbox" value="true" {% if record.ssl_check_enabled %}checked{% endif %} onchange="this.form.requestSubmit()"> Check SSL</label>
     </form>
     {% endif %}
+    {% if record.record_type in ssl_eligible_types %}
+    <form class="ssl-inline-toggle" action="/records/{{ record.id }}/ping-toggle" method="post" hx-post="/records/{{ record.id }}/ping-toggle" hx-target="#record-{{ record.id }}" hx-swap="outerHTML" hx-disabled-elt="find input">
+      <label><input name="enabled" type="checkbox" value="true" {% if record.ping_check_enabled %}checked{% endif %} onchange="this.form.requestSubmit()"> Check ping</label>
+    </form>
+    {% endif %}
     {% if record.ssl_check_enabled %}
     <span class="ssl-status {{ record.ssl_display_status }}">{% if record.ssl_earliest_expiry %}SSL until {{ record.ssl_earliest_expiry.strftime('%Y-%m-%d') }}{% elif record.ssl_display_status == 'pending' %}SSL check pending{% else %}SSL check failed{% endif %}</span>
+    {% endif %}
+    {% if record.ping_check_enabled %}
+    <span class="ssl-status {{ record.ping_display_status }}">{% if record.ping_display_status == 'pending' %}Ping pending{% elif record.ping_display_status == 'ok' %}Ping reachable{% else %}Ping failed{% endif %}</span>
     {% endif %}
   </td>
   <td><code>{{ record.content }}</code>{% if record.priority is not none %}<small>Priority {{ record.priority }}</small>{% endif %}{% for service in ovh_matches.get(record.id, []) %}<a class="ovh-match" href="/ovh?q={{ record.content|urlencode }}" title="OVH account: {{ service.account.name }}">OVH · {{ service.name }}<small>{{ service.service_type }} · {{ service.account.name }}</small></a>{% endfor %}{% for service in atw_matches.get(record.id, []) %}<a class="atw-match" href="/atw?q={{ record.content|urlencode }}" title="ATW account: {{ service.account.name }}">ATW · {{ service.name }}<small>{{ service.service_type }} · {{ service.account.name }}</small></a>{% endfor %}</td>
