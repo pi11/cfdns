@@ -21,6 +21,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from app import ping_checker
 from app.atw import ATWClient, ATWError
 from app.atw_services import sync_atw_account
 from app.auth import COOKIE_NAME, session_token
@@ -43,12 +44,6 @@ from app.models import (
 )
 from app.ovh import OVHClient, OVHError
 from app.ovh_services import sync_ovh_account
-from app.ping_checker import (
-    PING_CONCURRENCY,
-    check_and_store_record as check_and_store_ping_record,
-    inspect_record as inspect_ping_record,
-    store_record_results as store_ping_results,
-)
 from app.providers import PROVIDERS
 from app.proxy import global_proxy, validate_proxy_url
 from app.schemas import DNSRecordInput
@@ -541,7 +536,7 @@ async def create_record(
         if record.ssl_check_enabled:
             await check_and_store_record(session, record)
         if record.ping_check_enabled:
-            await check_and_store_ping_record(session, record)
+            await ping_checker.check_and_store_record(session, record)
     except CloudflareError as exc:
         return redirect(f"/zones/{zone_id}/records/new", error=str(exc))
     return redirect("/", message=f"DNS record {record.name} created.")
@@ -616,7 +611,7 @@ async def update_record(
         if record.ssl_check_enabled:
             await check_and_store_record(session, record)
         if record.ping_check_enabled:
-            await check_and_store_ping_record(session, record)
+            await ping_checker.check_and_store_record(session, record)
     except CloudflareError as exc:
         return redirect(f"/records/{record_id}/edit", error=str(exc))
     return redirect("/", message=f"DNS record {record.name} updated.")
@@ -687,7 +682,7 @@ async def toggle_ping_check(
     record.ping_check_enabled = enabled and record.record_type in ELIGIBLE_RECORD_TYPES
     if record.ping_check_enabled:
         await session.commit()
-        await check_and_store_ping_record(session, record)
+        await ping_checker.check_and_store_record(session, record)
     else:
         await session.execute(delete(PingCheckResult).where(PingCheckResult.record_id == record.id))
         await session.execute(
@@ -1269,16 +1264,19 @@ async def ping_selected_records(
             )
         )
     )
-    semaphore = asyncio.Semaphore(PING_CONCURRENCY)
+    semaphore = asyncio.Semaphore(ping_checker.PING_CONCURRENCY)
     inspected = await asyncio.gather(
-        *(inspect_ping_record(record, semaphore) for record in records), return_exceptions=True
+        *(ping_checker.inspect_record(record, semaphore) for record in records),
+        return_exceptions=True,
     )
     results = []
     for record, checks in zip(records, inspected, strict=True):
         if isinstance(checks, BaseException):
             results.append({"record_id": record.id, "name": record.name, "error": str(checks)})
             continue
-        await store_ping_results(session, record, checks, notify=record.ping_check_enabled)
+        await ping_checker.store_record_results(
+            session, record, checks, notify=record.ping_check_enabled
+        )
         results.append(
             {
                 "record_id": record.id,
