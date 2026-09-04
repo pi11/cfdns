@@ -118,6 +118,13 @@
           link.classList.toggle('active', active);
         });
       });
+
+      document.addEventListener('click', (event) => {
+        const ipLink = event.target.closest('[data-dns-search]');
+        if (!ipLink) return;
+        const searchInput = document.querySelector('.filters [name="q"]');
+        if (searchInput) searchInput.value = ipLink.dataset.dnsSearch;
+      });
     })();
   </script>
 </body>

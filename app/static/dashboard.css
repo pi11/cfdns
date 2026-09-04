@@ -35,6 +35,20 @@
   stroke: var(--danger);
 }
 
+.dns-ip-search {
+  display: inline-block;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+}
+
+.dns-ip-search:hover {
+  text-decoration-color: var(--accent);
+}
+
+.dns-ip-search:hover code {
+  color: var(--accent2);
+}
+
 .metric-link {
   text-decoration: none;
   transition: border-color 0.15s, transform 0.15s;
