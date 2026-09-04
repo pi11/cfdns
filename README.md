@@ -1,18 +1,24 @@
 # CFDNS
 
-CFDNS is a small self-hosted Cloudflare DNS manager. It keeps a searchable local SQLite or PostgreSQL cache of all zones and records while sending record changes directly to Cloudflare.
+CFDNS is a fast, self-hosted interface for managing Cloudflare DNS records across multiple accounts and zones. Its searchable local SQLite or PostgreSQL cache keeps browsing and filtering responsive, while record changes are sent directly to Cloudflare.
 
-![CFDNS account filtering](docs/cfdns-account-filter.png)
+![CFDNS dashboard showing DNS search, filters, monitoring, bulk actions, proxy status, service matches, and multiple Cloudflare accounts](docs/cfdns-dashboard.png)
+
+_Illustrative dashboard populated with fictional domains and documentation-only IP addresses._
 
 ## Features
 
-- Multiple Cloudflare accounts connected with scoped API tokens
+- Fast Cloudflare DNS record interface backed by a searchable local cache
+- Manage multiple Cloudflare accounts and zones from one dashboard using scoped API tokens
+- Create, edit, delete, search, filter, and synchronize DNS records without moving between Cloudflare zones
+- Bulk record selection with immediate concurrent ping checks and bulk deletion
+- Per-IP SSL certificate and ping monitoring with Telegram failure and recovery alerts
+- Cloudflare proxy status, TTL, comments, and monitoring health visible alongside each record
 - Multiple read-only OVH accounts with a searchable service cache
 - Automatic OVH service matching for Cloudflare A and AAAA record IPs
 - Multiple read-only ATW accounts with customer services, VPS details, and DNS IP matching
-- Telegram SSL expiry alerts at 30, 14, 7, and 1 day, with failure and recovery alerts
+- Telegram SSL expiry alerts at 30, 14, 7, and 1 day
 - Fernet-encrypted token storage
-- Full DNS record create, edit, and delete workflow
 - Search across zone, hostname, record content (including IP addresses), Cloudflare comments, and local comments
 - Manual synchronization and automatic synchronization every 15 minutes
 - Local comments that survive Cloudflare synchronization

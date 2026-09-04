@@ -228,6 +228,15 @@ class DNSRecord(TimestampMixin, Base):
         return "ok" if all_reachable else "danger"
 
     @property
+    def ping_average_latency_ms(self) -> float | None:
+        latencies = [
+            result.latency_ms
+            for result in self.ping_results
+            if result.status == "reachable" and result.latency_ms is not None
+        ]
+        return sum(latencies) / len(latencies) if latencies else None
+
+    @property
     def ssl_earliest_expiry(self) -> datetime | None:
         expirations = [
             result.certificate_expires_at

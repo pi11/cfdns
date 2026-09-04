@@ -2,6 +2,39 @@
   grid-template-columns: repeat(4, 1fr);
 }
 
+.summary-grid .metric {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.metric-copy {
+  min-width: 0;
+}
+
+.metric-icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  fill: none;
+  stroke: #79a7ff;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.metric-icon.zones {
+  stroke: #8bb4ff;
+}
+
+.metric-icon.records {
+  stroke: #75a4ff;
+}
+
+.metric-icon.alerts {
+  stroke: var(--danger);
+}
+
 .metric-link {
   text-decoration: none;
   transition: border-color 0.15s, transform 0.15s;

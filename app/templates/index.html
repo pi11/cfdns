@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="summary-grid">
-  <div class="metric"><strong>{{ accounts|length }}</strong><span>Accounts</span></div>
-  <div class="metric"><strong>{{ accounts|map(attribute='zones')|map('length')|sum }}</strong><span>Zones</span></div>
-  <div class="metric"><strong>{{ total_records }}</strong><span>Matching records</span></div>
+  <div class="metric"><svg class="metric-icon accounts" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><div class="metric-copy"><strong>{{ accounts|length }}</strong><span>Accounts</span></div></div>
+  <div class="metric"><svg class="metric-icon zones" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 17l9 5 9-5"/></svg><div class="metric-copy"><strong>{{ accounts|map(attribute='zones')|map('length')|sum }}</strong><span>Zones</span></div></div>
+  <div class="metric"><svg class="metric-icon records" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 7h8M8 12h8M8 17h5"/></svg><div class="metric-copy"><strong>{{ total_records }}</strong><span>Matching records</span></div></div>
   <a class="metric metric-link danger {% if ssl_status == 'error' %}active{% endif %}" href="{{ ssl_error_filter_url }}" title="{% if ssl_status == 'error' %}Show all matching records{% else %}Show records with SSL certificate errors{% endif %}">
-    <strong>{{ ssl_error_count }}</strong><span>SSL errors</span>
+    <svg class="metric-icon alerts" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M12 8v4M12 16h.01"/></svg><div class="metric-copy"><strong>{{ ssl_error_count }}</strong><span>SSL errors</span></div>
   </a>
 </section>
 

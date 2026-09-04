@@ -21,6 +21,7 @@ def test_record_ping_status_uses_all_resolved_addresses() -> None:
         )
     ]
     assert record.ping_display_status == "ok"
+    assert record.ping_average_latency_ms == 12.5
 
     record.ping_results.append(
         PingCheckResult(
@@ -30,3 +31,4 @@ def test_record_ping_status_uses_all_resolved_addresses() -> None:
         )
     )
     assert record.ping_display_status == "danger"
+    assert record.ping_average_latency_ms == 12.5
