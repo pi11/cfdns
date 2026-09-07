@@ -851,6 +851,7 @@ async def ovh_dashboard(
     q: str = Query(default="", max_length=300),
     account_id: str = "",
     hide_included: bool = False,
+    attention_only: bool = False,
     session: AsyncSession = Depends(get_db),
 ):
     app_settings = await load_app_settings(session)
@@ -885,14 +886,15 @@ async def ovh_dashboard(
     )
     if hide_included:
         services = [service for service in services if not service.has_zero_price]
-    attention_service_count = sum(
-        service.cancellation_scheduled
-        or (
+    def requires_attention(service: OVHService) -> bool:
+        return service.cancellation_scheduled or (
             service.auto_renew is False
             and service.expiration_display_status in {"notice", "warning", "danger"}
         )
-        for service in services
-    )
+
+    attention_service_count = sum(requires_attention(service) for service in services)
+    if attention_only:
+        services = [service for service in services if requires_attention(service)]
     service_groups = [
         list(group)
         for _account_id, group in groupby(services, key=lambda service: service.account_id)
@@ -905,7 +907,17 @@ async def ovh_dashboard(
         }
         if hide_included:
             params["hide_included"] = "true"
+        if attention_only:
+            params["attention_only"] = "true"
         return f"/ovh?{urlencode(params)}"
+
+    attention_filter_params = {
+        "q": q,
+        "account_id": selected_account_id or "",
+        "attention_only": "" if attention_only else "true",
+    }
+    if hide_included:
+        attention_filter_params["hide_included"] = "true"
 
     return await render_template(
         request,
@@ -929,8 +941,10 @@ async def ovh_dashboard(
             },
             "services": services,
             "attention_service_count": attention_service_count,
+            "attention_only": attention_only,
+            "attention_filter_url": f"/ovh?{urlencode(attention_filter_params)}",
             "service_groups": service_groups,
-            "expand_account_groups": bool(q or selected_account_id),
+            "expand_account_groups": bool(q or selected_account_id or attention_only),
             "account_filter_urls": {
                 account.id: ovh_account_filter_url(account.id) for account in accounts
             },
