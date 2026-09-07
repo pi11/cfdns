@@ -69,3 +69,27 @@ def test_ovh_auto_renewal_does_not_alert() -> None:
     )
 
     assert ovh_expiration_notification_state(service, now) == ("not-actionable", None)
+
+
+@pytest.mark.parametrize(
+    ("days", "stage"),
+    [(45, ":detected"), (30, ":30"), (14, ":14"), (7, ":7"), (1, ":1")],
+)
+def test_ovh_scheduled_cancellation_notification_stages(days: int, stage: str) -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    service = OVHService(
+        account_id=1,
+        ovh_id="43",
+        name="server-to-cancel",
+        service_type="dedicatedServer",
+        expires_at=now + timedelta(days=60),
+        auto_renew=True,
+        cancellation_scheduled=True,
+        cancellation_at=now + timedelta(days=days),
+    )
+
+    state, message = ovh_expiration_notification_state(service, now)
+
+    assert state.endswith(stage)
+    assert message and "cancellation scheduled" in message
+    assert f"in {days} day(s)" in message

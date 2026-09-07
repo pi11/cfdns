@@ -885,9 +885,12 @@ async def ovh_dashboard(
     )
     if hide_included:
         services = [service for service in services if not service.has_zero_price]
-    expiring_service_count = sum(
-        service.auto_renew is False
-        and service.expiration_display_status in {"notice", "warning", "danger"}
+    attention_service_count = sum(
+        service.cancellation_scheduled
+        or (
+            service.auto_renew is False
+            and service.expiration_display_status in {"notice", "warning", "danger"}
+        )
         for service in services
     )
     service_groups = [
@@ -925,7 +928,7 @@ async def ovh_dashboard(
                 for index, account in enumerate(accounts)
             },
             "services": services,
-            "expiring_service_count": expiring_service_count,
+            "attention_service_count": attention_service_count,
             "service_groups": service_groups,
             "expand_account_groups": bool(q or selected_account_id),
             "account_filter_urls": {

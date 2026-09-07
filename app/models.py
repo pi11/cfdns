@@ -75,6 +75,10 @@ class OVHService(TimestampMixin, Base):
     price: Mapped[str | None] = mapped_column(String(100))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     auto_renew: Mapped[bool | None] = mapped_column(Boolean)
+    cancellation_scheduled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    cancellation_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_json: Mapped[str | None] = mapped_column(Text)
 
     account: Mapped[OVHAccount] = relationship(back_populates="services")
@@ -100,6 +104,8 @@ class OVHService(TimestampMixin, Base):
 
     @property
     def expiration_display_status(self) -> str:
+        if self.cancellation_scheduled:
+            return "danger"
         if self.auto_renew is True:
             return "ok"
         if self.expires_at is None or self.auto_renew is None:
@@ -115,6 +121,12 @@ class OVHService(TimestampMixin, Base):
         if remaining <= timedelta(days=30):
             return "notice"
         return "ok"
+
+    @property
+    def effective_end_at(self) -> datetime | None:
+        if self.cancellation_scheduled and self.cancellation_at is not None:
+            return self.cancellation_at
+        return self.expires_at
 
 
 class OVHExpirationNotificationState(TimestampMixin, Base):

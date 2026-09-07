@@ -49,6 +49,26 @@ def notification_state(check: EndpointCheck, now: datetime) -> tuple[str, str | 
 def ovh_expiration_notification_state(
     service: OVHService, now: datetime
 ) -> tuple[str, str | None]:
+    if service.cancellation_scheduled:
+        effective_at = service.effective_end_at
+        if effective_at is None:
+            return "cancellation:unknown:detected", (
+                f"🚨 OVH cancellation scheduled\nService: {service.name}"
+                f"\nType: {service.service_type}\nEffective date: unknown"
+            )
+        if effective_at.tzinfo is None:
+            effective_at = effective_at.replace(tzinfo=UTC)
+        days = math.ceil((effective_at - now).total_seconds() / 86400)
+        threshold = next((value for value in EXPIRY_THRESHOLDS if days <= value), None)
+        stage = str(threshold) if threshold is not None else "detected"
+        timing = (
+            f"in {days} day(s)" if days >= 0 else f"{abs(days)} day(s) ago"
+        )
+        return f"cancellation:{effective_at.date().isoformat()}:{stage}", (
+            f"🚨 OVH cancellation scheduled\nService: {service.name}"
+            f"\nType: {service.service_type}\nEffective: {effective_at:%Y-%m-%d %H:%M UTC}"
+            f" ({timing})"
+        )
     if service.auto_renew is not False or service.expires_at is None:
         return "not-actionable", None
     expires = service.expires_at

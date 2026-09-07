@@ -58,7 +58,9 @@ def _find_value(value: Any, keys: set[str]) -> Any:
     return None
 
 
-def _expiration_and_renewal(remote: dict[str, Any]) -> tuple[datetime | None, bool | None]:
+def _expiration_renewal_and_cancellation(
+    remote: dict[str, Any],
+) -> tuple[datetime | None, bool | None, bool, datetime | None]:
     service_info = remote.get("serviceInfo") or {}
     billing = remote.get("billing") or {}
     expiration_value = (
@@ -69,21 +71,36 @@ def _expiration_and_renewal(remote: dict[str, Any]) -> tuple[datetime | None, bo
     expires_at = _parse_ovh_date(expiration_value)
 
     renew = service_info.get("renew") or _find_value(billing, {"renew"})
+    delete_at_expiration = (
+        renew.get("deleteAtExpiration") if isinstance(renew, dict) else None
+    )
+    termination_policy = _find_value(remote, {"terminationpolicy"})
+    cancellation_scheduled = delete_at_expiration is True or (
+        isinstance(termination_policy, str)
+        and termination_policy.lower() in {
+            "terminateatexpirationdate",
+            "deleteatexpirationdate",
+        }
+    )
+    cancellation_value = _find_value(
+        billing, {"cancellationdate", "terminationdate", "terminationeffectivedate"}
+    )
+    cancellation_at = _parse_ovh_date(cancellation_value) or (
+        expires_at if cancellation_scheduled else None
+    )
+
     if isinstance(renew, dict) and isinstance(renew.get("automatic"), bool):
-        return expires_at, renew["automatic"]
+        return expires_at, renew["automatic"], cancellation_scheduled, cancellation_at
     renewal_type = service_info.get("renewalType") or _find_value(
         billing, {"renewaltype", "renewalmode", "mode"}
     )
     if isinstance(renewal_type, str):
         normalized = renewal_type.lower()
         if normalized.startswith("automatic") or normalized in {"auto", "autorenew"}:
-            return expires_at, True
+            return expires_at, True, cancellation_scheduled, cancellation_at
         if normalized in {"manual", "oneshot", "one-shot"}:
-            return expires_at, False
-    termination_policy = _find_value(billing, {"terminationpolicy"})
-    if isinstance(termination_policy, str) and "terminate" in termination_policy.lower():
-        return expires_at, False
-    return expires_at, None
+            return expires_at, False, cancellation_scheduled, cancellation_at
+    return expires_at, None, cancellation_scheduled, cancellation_at
 
 
 def normalize_service(remote: dict[str, Any]) -> dict[str, Any]:
@@ -121,7 +138,9 @@ def normalize_service(remote: dict[str, Any]) -> dict[str, Any]:
         or plan.get("code")
         or "unknown"
     )
-    expires_at, auto_renew = _expiration_and_renewal(remote)
+    expires_at, auto_renew, cancellation_scheduled, cancellation_at = (
+        _expiration_renewal_and_cancellation(remote)
+    )
     return {
         "ovh_id": str(service_id),
         "name": str(name),
@@ -135,6 +154,8 @@ def normalize_service(remote: dict[str, Any]) -> dict[str, Any]:
         "price": price,
         "expires_at": expires_at,
         "auto_renew": auto_renew,
+        "cancellation_scheduled": cancellation_scheduled,
+        "cancellation_at": cancellation_at,
         "raw_json": json.dumps(remote, separators=(",", ":"), default=str),
     }
 

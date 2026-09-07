@@ -177,6 +177,43 @@ def test_normalize_service_extracts_nested_generic_billing_expiration() -> None:
     assert normalized["auto_renew"] is True
 
 
+def test_normalize_service_detects_product_scheduled_cancellation() -> None:
+    normalized = normalize_service(
+        {
+            "serviceId": 44,
+            "resource": {"name": "vps-1"},
+            "serviceInfo": {
+                "expiration": "2026-10-15",
+                "renew": {"automatic": True, "deleteAtExpiration": True},
+            },
+        }
+    )
+
+    assert normalized["cancellation_scheduled"] is True
+    assert normalized["cancellation_at"].isoformat() == "2026-10-15T00:00:00+00:00"
+    assert normalized["auto_renew"] is True
+
+
+def test_normalize_service_detects_generic_scheduled_cancellation() -> None:
+    normalized = normalize_service(
+        {
+            "serviceId": 45,
+            "resource": {"name": "server-1"},
+            "billing": {
+                "lifecycle": {
+                    "current": {
+                        "terminationPolicy": "terminateAtExpirationDate",
+                        "terminationDate": "2026-11-20T12:00:00Z",
+                    }
+                }
+            },
+        }
+    )
+
+    assert normalized["cancellation_scheduled"] is True
+    assert normalized["cancellation_at"].isoformat() == "2026-11-20T12:00:00+00:00"
+
+
 @pytest.mark.parametrize(
     ("price", "expected"),
     [("$0.00 USD", True), ("0 EUR", True), ("$75.89 USD", False), (None, False)],

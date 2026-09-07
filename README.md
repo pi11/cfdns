@@ -36,9 +36,10 @@ OVH credentials are entered in separate Application Key, Application Secret, and
 Consumer Key fields. CFDNS combines and encrypts them as one credential at rest.
 Its OVH client only implements GET requests. Use the narrowest OVH API rights
 possible; product-specific GET rights let synchronization obtain server and VPS IP
-addresses, expiration dates, and renewal settings. The OVH table displays expiration
-for every service when OVH provides it. Manual-renewal services trigger Telegram
-reminders at 30, 14, 7, and 1 day before expiration.
+addresses, expiration dates, renewal settings, and scheduled cancellations. The OVH
+table displays expiration and a red cancellation badge when OVH reports termination at
+the end of the subscription. Manual-renewal services trigger Telegram reminders at 30,
+14, 7, and 1 day before expiration.
 Select Canada / North America for credentials created at `ca.api.ovh.com`; OVH API
 credentials are region-specific and will be rejected by the European endpoint.
 
@@ -242,7 +243,8 @@ failure state, and a recovery message after the certificate becomes healthy or i
 renewed. Notifications run whenever enabled SSL, ping, or GET checks are executed, including
 via `scripts/check_ssl.sh`, `scripts/check_ping.sh`, and `scripts/check_http.sh`. OVH
 manual-renewal expiration reminders use the same windows and run after manual or hourly
-OVH synchronization.
+OVH synchronization. Scheduled cancellations send an immediate alert when first
+detected and additional reminders at 30, 14, 7, and 1 day before their effective date.
 
 The Settings page also controls whether zero-priced, included OVH service components
 are always hidden from the OVH services table.
