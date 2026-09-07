@@ -27,6 +27,9 @@ def apply_remote_record(record: DNSRecord, remote: dict) -> None:
 
 
 async def sync_account(session: AsyncSession, account: Account, settings: Settings) -> None:
+    # A rollback expires every ORM object, so read the identifier while it is still
+    # loaded; refreshing it afterwards would need IO and raise MissingGreenlet.
+    account_id = account.id
     token = TokenCipher(settings.encryption_key).decrypt(account.encrypted_token)
     proxy = await global_proxy(session, settings)
     try:
@@ -62,9 +65,9 @@ async def sync_account(session: AsyncSession, account: Account, settings: Settin
         await session.commit()
     except Exception as exc:
         await session.rollback()
-        account = await session.get(Account, account.id)
-        if account:
-            account.last_sync_error = str(exc)[:2000]
+        current = await session.get(Account, account_id)
+        if current:
+            current.last_sync_error = str(exc)[:2000]
             await session.commit()
         raise
 

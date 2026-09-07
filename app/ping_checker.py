@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.database import SessionLocal
-from app.models import DNSRecord, PingCheckResult
+from app.models import DNSRecord, PingCheckResult, PingNotificationState
 from app.ssl_checker import ELIGIBLE_RECORD_TYPES, resolve_record_addresses
 
 PING_COUNT = 3
@@ -101,6 +101,14 @@ async def store_record_results(
     notify: bool = True,
 ) -> None:
     await session.execute(delete(PingCheckResult).where(PingCheckResult.record_id == record.id))
+    # A record's addresses change when it is edited or its CNAME re-resolves; drop the
+    # alert state for addresses that are gone so a returning one starts from scratch.
+    await session.execute(
+        delete(PingNotificationState).where(
+            PingNotificationState.record_id == record.id,
+            PingNotificationState.ip_address.notin_([check.ip_address for check in checks]),
+        )
+    )
     checked_at = datetime.now(UTC)
     session.add_all(
         PingCheckResult(

@@ -17,6 +17,7 @@ from app.ssl_checker import ELIGIBLE_RECORD_TYPES
 
 HTTP_TIMEOUT_SECONDS = 15
 HTTP_CONCURRENCY = 20
+MAX_URL_LENGTH = 2400
 
 
 @dataclass(slots=True)
@@ -64,13 +65,12 @@ async def inspect_url(url: str, transport: httpx.AsyncBaseTransport | None = Non
         ) as client:
             response = await client.get(url)
         latency_ms = (perf_counter() - started) * 1000
+        final_url = str(response.url)[:MAX_URL_LENGTH]
         if response.is_success:
-            return HTTPCheck(
-                url, str(response.url), "healthy", response.status_code, latency_ms
-            )
+            return HTTPCheck(url, final_url, "healthy", response.status_code, latency_ms)
         return HTTPCheck(
             url,
-            str(response.url),
+            final_url,
             "http_error",
             response.status_code,
             latency_ms,
@@ -80,6 +80,10 @@ async def inspect_url(url: str, transport: httpx.AsyncBaseTransport | None = Non
         return HTTPCheck(url, None, "timeout", error=str(exc) or "Request timed out.")
     except httpx.HTTPError as exc:
         return HTTPCheck(url, None, "connection_error", error=str(exc))
+    except (httpx.InvalidURL, ValueError) as exc:
+        # Cloudflare accepts record names httpx cannot turn into a URL, such as a
+        # malformed punycode label; UnicodeError from IDNA encoding is a ValueError.
+        return HTTPCheck(url, None, "invalid_url", error=str(exc) or "Invalid URL.")
 
 
 async def inspect_record(record: DNSRecord) -> HTTPCheck | None:
@@ -137,12 +141,16 @@ async def check_all_enabled_records() -> tuple[int, int]:
             async with semaphore:
                 return await inspect_record(record)
 
-        inspected = await asyncio.gather(*(inspect(record) for record in records))
+        inspected = await asyncio.gather(
+            *(inspect(record) for record in records), return_exceptions=True
+        )
         checked = failed = 0
         for record, check in zip(records, inspected, strict=True):
             if check is None:
                 continue
             try:
+                if isinstance(check, BaseException):
+                    raise check
                 await store_record_result(session, record, check)
                 checked += 1
                 failed += check.status != "healthy"

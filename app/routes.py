@@ -59,6 +59,15 @@ router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
+MAX_BULK_RECORDS = 500
+
+
+def search_pattern(value: str) -> str:
+    """Match the search text literally: % and _ are LIKE wildcards, not user input."""
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 async def provider_context(session: AsyncSession) -> dict[str, object]:
     integrations = []
     for item in PROVIDERS:
@@ -252,14 +261,14 @@ async def dashboard(
     )
     conditions = []
     if q:
-        pattern = f"%{q}%"
+        pattern = search_pattern(q)
         conditions.append(
             or_(
-                DNSRecord.name.ilike(pattern),
-                DNSRecord.content.ilike(pattern),
-                DNSRecord.cloudflare_comment.ilike(pattern),
-                DNSRecord.local_comment.ilike(pattern),
-                Zone.name.ilike(pattern),
+                DNSRecord.name.ilike(pattern, escape="\\"),
+                DNSRecord.content.ilike(pattern, escape="\\"),
+                DNSRecord.cloudflare_comment.ilike(pattern, escape="\\"),
+                DNSRecord.local_comment.ilike(pattern, escape="\\"),
+                Zone.name.ilike(pattern, escape="\\"),
             )
         )
     if selected_account_id:
@@ -638,6 +647,9 @@ async def update_record(
             await session.execute(
                 delete(SSLCheckResult).where(SSLCheckResult.record_id == record.id)
             )
+            await session.execute(
+                delete(SSLNotificationState).where(SSLNotificationState.record_id == record.id)
+            )
         if not record.ping_check_enabled:
             await session.execute(
                 delete(PingCheckResult).where(PingCheckResult.record_id == record.id)
@@ -682,6 +694,9 @@ async def toggle_ssl_check(
         await check_and_store_record(session, record)
     else:
         await session.execute(delete(SSLCheckResult).where(SSLCheckResult.record_id == record.id))
+        await session.execute(
+            delete(SSLNotificationState).where(SSLNotificationState.record_id == record.id)
+        )
         await session.commit()
     await session.refresh(record, ["ssl_results"])
     if request.headers.get("HX-Request"):
@@ -850,14 +865,14 @@ async def ovh_dashboard(
     if selected_account_id:
         conditions.append(OVHService.account_id == selected_account_id)
     if q:
-        pattern = f"%{q}%"
+        pattern = search_pattern(q)
         conditions.append(
             or_(
-                OVHService.name.ilike(pattern),
-                OVHService.canonical_name.ilike(pattern),
-                OVHService.service_type.ilike(pattern),
-                OVHService.ips.ilike(pattern),
-                OVHService.region.ilike(pattern),
+                OVHService.name.ilike(pattern, escape="\\"),
+                OVHService.canonical_name.ilike(pattern, escape="\\"),
+                OVHService.service_type.ilike(pattern, escape="\\"),
+                OVHService.ips.ilike(pattern, escape="\\"),
+                OVHService.region.ilike(pattern, escape="\\"),
             )
         )
     services = list(
@@ -1180,13 +1195,13 @@ async def atw_dashboard(
     if selected_account_id:
         conditions.append(ATWService.account_id == selected_account_id)
     if q:
-        pattern = f"%{q}%"
+        pattern = search_pattern(q)
         conditions.append(
             or_(
-                ATWService.name.ilike(pattern),
-                ATWService.service_type.ilike(pattern),
-                ATWService.ips.ilike(pattern),
-                ATWService.customer_name.ilike(pattern),
+                ATWService.name.ilike(pattern, escape="\\"),
+                ATWService.service_type.ilike(pattern, escape="\\"),
+                ATWService.ips.ilike(pattern, escape="\\"),
+                ATWService.customer_name.ilike(pattern, escape="\\"),
             )
         )
     services = list(
@@ -1315,6 +1330,10 @@ async def bulk_delete_records(
     unique_ids = list(dict.fromkeys(record_ids))
     if not unique_ids:
         return JSONResponse({"deleted_ids": [], "errors": []})
+    if len(unique_ids) > MAX_BULK_RECORDS:
+        return PlainTextResponse(
+            f"Select at most {MAX_BULK_RECORDS} records at a time.", status_code=413
+        )
 
     records = list(
         await session.scalars(
@@ -1365,6 +1384,10 @@ async def ping_selected_records(
     session: AsyncSession = Depends(get_db),
 ):
     unique_ids = list(dict.fromkeys(record_ids))
+    if len(unique_ids) > MAX_BULK_RECORDS:
+        return PlainTextResponse(
+            f"Select at most {MAX_BULK_RECORDS} records at a time.", status_code=413
+        )
     records = list(
         await session.scalars(
             select(DNSRecord)

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.database import SessionLocal
-from app.models import DNSRecord, SSLCheckResult
+from app.models import DNSRecord, SSLCheckResult, SSLNotificationState
 
 ELIGIBLE_RECORD_TYPES = {"A", "AAAA", "CNAME"}
 TLS_PORT = 443
@@ -110,6 +110,14 @@ async def inspect_record(record: DNSRecord) -> list[EndpointCheck]:
 async def check_and_store_record(session: AsyncSession, record: DNSRecord) -> list[EndpointCheck]:
     checks = await inspect_record(record)
     await session.execute(delete(SSLCheckResult).where(SSLCheckResult.record_id == record.id))
+    # A record's addresses change when it is edited or its CNAME re-resolves; drop the
+    # alert state for addresses that are gone so a returning one starts from scratch.
+    await session.execute(
+        delete(SSLNotificationState).where(
+            SSLNotificationState.record_id == record.id,
+            SSLNotificationState.ip_address.notin_([check.ip_address for check in checks]),
+        )
+    )
     checked_at = datetime.now(UTC)
     session.add_all(
         SSLCheckResult(

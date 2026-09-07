@@ -142,6 +142,9 @@ def normalize_service(remote: dict[str, Any]) -> dict[str, Any]:
 async def sync_ovh_account(
     session: AsyncSession, account: OVHAccount, settings: Settings
 ) -> None:
+    # A rollback expires every ORM object, so read the identifier while it is still
+    # loaded; refreshing it afterwards would need IO and raise MissingGreenlet.
+    account_id = account.id
     token = TokenCipher(settings.encryption_key).decrypt(account.encrypted_token)
     api_base = settings.ovh_ca_api_base if account.endpoint == "ovh-ca" else settings.ovh_api_base
     proxy = await global_proxy(session, settings)
@@ -152,7 +155,7 @@ async def sync_ovh_account(
             item.ovh_id: item
             for item in (
                 await session.scalars(
-                    select(OVHService).where(OVHService.account_id == account.id)
+                    select(OVHService).where(OVHService.account_id == account_id)
                 )
             ).all()
         }
@@ -162,7 +165,7 @@ async def sync_ovh_account(
             remote_ids.add(values["ovh_id"])
             service = existing.get(values["ovh_id"])
             if service is None:
-                service = OVHService(account_id=account.id, ovh_id=values["ovh_id"])
+                service = OVHService(account_id=account_id, ovh_id=values["ovh_id"])
                 session.add(service)
             for key, value in values.items():
                 setattr(service, key, value)
@@ -174,7 +177,7 @@ async def sync_ovh_account(
         await session.commit()
         current_services = list(
             await session.scalars(
-                select(OVHService).where(OVHService.account_id == account.id)
+                select(OVHService).where(OVHService.account_id == account_id)
             )
         )
         from app.notifications import notify_ovh_expirations
@@ -182,7 +185,7 @@ async def sync_ovh_account(
         await notify_ovh_expirations(session, account, current_services, settings)
     except Exception as exc:
         await session.rollback()
-        current = await session.get(OVHAccount, account.id)
+        current = await session.get(OVHAccount, account_id)
         if current:
             current.last_sync_error = str(exc)[:2000]
             await session.commit()

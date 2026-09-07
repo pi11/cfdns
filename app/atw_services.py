@@ -51,6 +51,9 @@ def normalize_atw_service(remote: dict[str, Any]) -> dict[str, Any]:
 async def sync_atw_account(
     session: AsyncSession, account: ATWAccount, settings: Settings
 ) -> None:
+    # A rollback expires every ORM object, so read the identifier while it is still
+    # loaded; refreshing it afterwards would need IO and raise MissingGreenlet.
+    account_id = account.id
     token = TokenCipher(settings.encryption_key).decrypt(account.encrypted_token)
     proxy = await global_proxy(session, settings)
     try:
@@ -62,7 +65,7 @@ async def sync_atw_account(
             item.atw_id: item
             for item in (
                 await session.scalars(
-                    select(ATWService).where(ATWService.account_id == account.id)
+                    select(ATWService).where(ATWService.account_id == account_id)
                 )
             ).all()
         }
@@ -72,7 +75,7 @@ async def sync_atw_account(
             remote_ids.add(values["atw_id"])
             service = existing.get(values["atw_id"])
             if service is None:
-                service = ATWService(account_id=account.id, atw_id=values["atw_id"])
+                service = ATWService(account_id=account_id, atw_id=values["atw_id"])
                 session.add(service)
             for key, value in values.items():
                 setattr(service, key, value)
@@ -84,7 +87,7 @@ async def sync_atw_account(
         await session.commit()
     except Exception as exc:
         await session.rollback()
-        current = await session.get(ATWAccount, account.id)
+        current = await session.get(ATWAccount, account_id)
         if current:
             current.last_sync_error = str(exc)[:2000]
             await session.commit()

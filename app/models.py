@@ -368,8 +368,8 @@ class HTTPCheckResult(Base):
     record_id: Mapped[int] = mapped_column(
         ForeignKey("dns_records.id", ondelete="CASCADE"), unique=True, index=True
     )
-    url: Mapped[str] = mapped_column(String(2300))
-    final_url: Mapped[str | None] = mapped_column(String(2300))
+    url: Mapped[str] = mapped_column(String(2400))
+    final_url: Mapped[str | None] = mapped_column(String(2400))
     status: Mapped[str] = mapped_column(String(32), index=True)
     status_code: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[float | None] = mapped_column(Float)
