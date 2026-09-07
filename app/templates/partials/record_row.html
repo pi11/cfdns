@@ -10,6 +10,11 @@
     </form>
     {% endif %}
     {% if record.record_type in ssl_eligible_types %}
+    <form class="ssl-inline-toggle" action="/records/{{ record.id }}/http-toggle" method="post" hx-post="/records/{{ record.id }}/http-toggle" hx-target="#record-{{ record.id }}" hx-swap="outerHTML" hx-disabled-elt="find input">
+      <label><input name="enabled" type="checkbox" value="true" {% if record.http_check_enabled %}checked{% endif %} onchange="this.form.requestSubmit()"> Check GET</label>
+    </form>
+    {% endif %}
+    {% if record.record_type in ssl_eligible_types %}
     <form class="ssl-inline-toggle" action="/records/{{ record.id }}/ping-toggle" method="post" hx-post="/records/{{ record.id }}/ping-toggle" hx-target="#record-{{ record.id }}" hx-swap="outerHTML" hx-disabled-elt="find input">
       <label><input name="enabled" type="checkbox" value="true" {% if record.ping_check_enabled %}checked{% endif %} onchange="this.form.requestSubmit()"> Check ping</label>
     </form>
@@ -19,6 +24,9 @@
     {% endif %}
     {% if record.ping_check_enabled %}
     <span class="ssl-status {{ record.ping_display_status }}">{% if record.ping_display_status == 'pending' %}Ping pending{% elif record.ping_display_status == 'ok' and record.ping_average_latency_ms is not none %}Ping {{ '%.1f'|format(record.ping_average_latency_ms) }} ms{% elif record.ping_display_status == 'ok' %}Ping OK{% else %}Ping failed{% endif %}</span>
+    {% endif %}
+    {% if record.http_check_enabled %}
+    <span class="ssl-status {{ record.http_display_status }}" title="{{ record.http_check_url }}">{% if record.http_display_status == 'pending' %}GET pending{% elif record.http_display_status == 'ok' %}GET {{ record.http_result.status_code }}{% else %}GET failed{% endif %}</span>
     {% endif %}
   </td>
   <td>{% if record.record_type in ['A', 'AAAA'] %}<a class="dns-ip-search" href="/?q={{ record.content|urlencode }}" hx-get="/?q={{ record.content|urlencode }}" hx-target="#records" hx-push-url="true" data-dns-search="{{ record.content }}" title="Search DNS records for {{ record.content }}"><code>{{ record.content }}</code></a>{% else %}<code>{{ record.content }}</code>{% endif %}{% if record.priority is not none %}<small>Priority {{ record.priority }}</small>{% endif %}{% for service in ovh_matches.get(record.id, []) %}<a class="ovh-match" href="/ovh?q={{ record.content|urlencode }}" title="OVH account: {{ service.account.name }}">OVH · {{ service.name }}<small>{{ service.service_type }} · {{ service.account.name }}</small></a>{% endfor %}{% for service in atw_matches.get(record.id, []) %}<a class="atw-match" href="/atw?q={{ record.content|urlencode }}" title="ATW account: {{ service.account.name }}">ATW · {{ service.name }}<small>{{ service.service_type }} · {{ service.account.name }}</small></a>{% endfor %}</td>

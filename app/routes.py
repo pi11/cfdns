@@ -21,7 +21,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app import ping_checker
+from app import http_checker, ping_checker
 from app.atw import ATWClient, ATWError
 from app.atw_services import sync_atw_account
 from app.auth import COOKIE_NAME, session_token
@@ -34,6 +34,8 @@ from app.models import (
     ATWAccount,
     ATWService,
     DNSRecord,
+    HTTPCheckResult,
+    HTTPNotificationState,
     OVHAccount,
     OVHService,
     PingCheckResult,
@@ -212,6 +214,7 @@ async def load_record(session: AsyncSession, record_id: int) -> DNSRecord:
             joinedload(DNSRecord.zone).joinedload(Zone.account),
             selectinload(DNSRecord.ssl_results),
             selectinload(DNSRecord.ping_results),
+            selectinload(DNSRecord.http_result),
         )
         .where(DNSRecord.id == record_id)
     )
@@ -299,6 +302,7 @@ async def dashboard(
             joinedload(DNSRecord.zone).joinedload(Zone.account),
             selectinload(DNSRecord.ssl_results),
             selectinload(DNSRecord.ping_results),
+            selectinload(DNSRecord.http_result),
         )
         .where(*conditions)
         .order_by(
@@ -482,7 +486,10 @@ async def new_record_form(request: Request, zone_id: int, session: AsyncSession 
     if not zone:
         raise HTTPException(404, "Zone not found")
     return await render_template(
-        request, session, "record_form.html", {"zone": zone, "record": None}
+        request,
+        session,
+        "record_form.html",
+        {"zone": zone, "record": None, "error": request.query_params.get("error")},
     )
 
 
@@ -499,6 +506,9 @@ async def create_record(
     priority: int | None = Form(None),
     ssl_check_enabled: bool = Form(False),
     ping_check_enabled: bool = Form(False),
+    http_check_enabled: bool = Form(False),
+    http_check_scheme: str = Form("https"),
+    http_check_page: str = Form("/"),
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -507,6 +517,12 @@ async def create_record(
     )
     if not zone:
         raise HTTPException(404, "Zone not found")
+    try:
+        http_check_scheme, http_check_path = http_checker.normalize_http_target(
+            name, http_check_scheme, http_check_page
+        )
+    except ValueError as exc:
+        return redirect(f"/zones/{zone_id}/records/new", error=str(exc))
     data = DNSRecordInput(
         type=record_type,
         name=name,
@@ -531,12 +547,19 @@ async def create_record(
         record.ping_check_enabled = (
             ping_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
         )
+        record.http_check_enabled = (
+            http_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
+        )
+        record.http_check_scheme = http_check_scheme
+        record.http_check_path = http_check_path
         session.add(record)
         await session.commit()
         if record.ssl_check_enabled:
             await check_and_store_record(session, record)
         if record.ping_check_enabled:
             await ping_checker.check_and_store_record(session, record)
+        if record.http_check_enabled:
+            await http_checker.check_and_store_record(session, record)
     except CloudflareError as exc:
         return redirect(f"/zones/{zone_id}/records/new", error=str(exc))
     return redirect("/", message=f"DNS record {record.name} created.")
@@ -568,10 +591,19 @@ async def update_record(
     priority: int | None = Form(None),
     ssl_check_enabled: bool = Form(False),
     ping_check_enabled: bool = Form(False),
+    http_check_enabled: bool = Form(False),
+    http_check_scheme: str = Form("https"),
+    http_check_page: str = Form("/"),
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     record = await load_record(session, record_id)
+    try:
+        http_check_scheme, http_check_path = http_checker.normalize_http_target(
+            name, http_check_scheme, http_check_page
+        )
+    except ValueError as exc:
+        return redirect(f"/records/{record_id}/edit", error=str(exc))
     data = DNSRecordInput(
         type=record_type,
         name=name,
@@ -596,6 +628,11 @@ async def update_record(
         record.ping_check_enabled = (
             ping_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
         )
+        record.http_check_enabled = (
+            http_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
+        )
+        record.http_check_scheme = http_check_scheme
+        record.http_check_path = http_check_path
         if not record.ssl_check_enabled:
             await session.execute(
                 delete(SSLCheckResult).where(SSLCheckResult.record_id == record.id)
@@ -607,11 +644,22 @@ async def update_record(
             await session.execute(
                 delete(PingNotificationState).where(PingNotificationState.record_id == record.id)
             )
+        if not record.http_check_enabled:
+            await session.execute(
+                delete(HTTPCheckResult).where(HTTPCheckResult.record_id == record.id)
+            )
+            await session.execute(
+                delete(HTTPNotificationState).where(
+                    HTTPNotificationState.record_id == record.id
+                )
+            )
         await session.commit()
         if record.ssl_check_enabled:
             await check_and_store_record(session, record)
         if record.ping_check_enabled:
             await ping_checker.check_and_store_record(session, record)
+        if record.http_check_enabled:
+            await http_checker.check_and_store_record(session, record)
     except CloudflareError as exc:
         return redirect(f"/records/{record_id}/edit", error=str(exc))
     return redirect("/", message=f"DNS record {record.name} updated.")
@@ -725,6 +773,60 @@ async def toggle_ping_check(
         )
     state = "enabled" if record.ping_check_enabled else "disabled"
     return redirect("/", message=f"Ping checks {state} for {record.name}.")
+
+
+@router.post("/records/{record_id}/http-toggle")
+async def toggle_http_check(
+    request: Request,
+    record_id: int,
+    enabled: bool = Form(False),
+    session: AsyncSession = Depends(get_db),
+):
+    record = await load_record(session, record_id)
+    record.http_check_enabled = enabled and record.record_type in ELIGIBLE_RECORD_TYPES
+    if record.http_check_enabled:
+        await session.commit()
+        await http_checker.check_and_store_record(session, record)
+    else:
+        await session.execute(delete(HTTPCheckResult).where(HTTPCheckResult.record_id == record.id))
+        await session.execute(
+            delete(HTTPNotificationState).where(HTTPNotificationState.record_id == record.id)
+        )
+        await session.commit()
+    await session.refresh(record, ["ssl_results", "ping_results", "http_result"])
+    if request.headers.get("HX-Request"):
+        current_params = parse_qs(urlparse(request.headers.get("HX-Current-URL", "/")).query)
+        current_proxy_status = current_params.get("proxy_status", [""])[0]
+
+        def proxy_url(status: str) -> str:
+            params = {
+                "q": current_params.get("q", [""])[0],
+                "account_id": current_params.get("account_id", [""])[0],
+                "zone_id": current_params.get("zone_id", [""])[0],
+                "record_type": current_params.get("record_type", [""])[0],
+                "proxy_status": "" if current_proxy_status == status else status,
+                "per_page": current_params.get("per_page", ["25"])[0],
+                "page": 1,
+            }
+            return f"/?{urlencode(params)}"
+
+        return templates.TemplateResponse(
+            request,
+            "partials/record_row.html",
+            {
+                "record": record,
+                "ovh_matches": await ovh_matches_for_records(session, [record]),
+                "atw_matches": await atw_matches_for_records(session, [record]),
+                "ssl_eligible_types": ELIGIBLE_RECORD_TYPES,
+                "proxy_status": current_proxy_status,
+                "proxy_filter_urls": {
+                    "proxied": proxy_url("proxied"),
+                    "dns_only": proxy_url("dns_only"),
+                },
+            },
+        )
+    state = "enabled" if record.http_check_enabled else "disabled"
+    return redirect("/", message=f"GET checks {state} for {record.name}.")
 
 
 @router.get("/ovh", response_class=HTMLResponse)
@@ -932,6 +1034,7 @@ async def remove_telegram_bot(session: AsyncSession = Depends(get_db)):
     app_settings.telegram_chat_id = None
     await session.execute(delete(SSLNotificationState))
     await session.execute(delete(PingNotificationState))
+    await session.execute(delete(HTTPNotificationState))
     await session.commit()
     return redirect("/settings", message="Telegram bot and notification state removed.")
 

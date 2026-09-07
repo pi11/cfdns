@@ -12,7 +12,7 @@ _Illustrative dashboard populated with fictional domains and documentation-only 
 - Manage multiple Cloudflare accounts and zones from one dashboard using scoped API tokens
 - Create, edit, delete, search, filter, and synchronize DNS records without moving between Cloudflare zones
 - Bulk record selection with immediate concurrent ping checks and bulk deletion
-- Per-IP SSL certificate and ping monitoring with Telegram failure and recovery alerts
+- SSL certificate, ping, and HTTP GET monitoring with Telegram failure and recovery alerts
 - Cloudflare proxy status, TTL, comments, and monitoring health visible alongside each record
 - Multiple read-only OVH accounts with a searchable service cache
 - Automatic OVH service matching for Cloudflare A and AAAA record IPs
@@ -202,6 +202,23 @@ Run all enabled checks manually or from cron:
 
 The Docker image includes `iputils-ping`. Native installations must provide a working `ping` command. ICMP does not travel through the configured HTTP, HTTPS, or SOCKS5 API proxy; only Telegram delivery uses its configured proxy. Ping failure and recovery alerts are deduplicated per DNS record and resolved IP.
 
+## HTTP GET monitoring
+
+GET monitoring can be enabled per A, AAAA, or CNAME record, including Cloudflare-proxied
+records. Choose HTTP or HTTPS and enter either a page path such as `/health` or a full,
+same-host URL such as `https://example.com/health`. Checks follow redirects and consider
+the final response healthy when it has a 2xx status. The final URL, HTTP status, latency,
+error, and last check time are stored and displayed.
+
+Run all enabled checks manually or from cron:
+
+```bash
+./scripts/check_http.sh
+```
+
+GET requests use a 15-second timeout and connect directly rather than through the global
+API proxy. Failure and recovery alerts are deduplicated per DNS record.
+
 ### Telegram alerts
 
 Open **Settings**, save a bot token created with BotFather, and either enter the
@@ -217,8 +234,8 @@ Use the explicit removal checkbox to clear the proxy.
 Alerts are deduplicated per DNS record and resolved IP. CFDNS sends expiry reminders
 when a certificate enters the 30-, 14-, 7-, and 1-day windows, one alert for an SSL
 failure state, and a recovery message after the certificate becomes healthy or is
-renewed. Notifications run whenever enabled SSL or ping checks are executed, including
-via `scripts/check_ssl.sh` and `scripts/check_ping.sh`.
+renewed. Notifications run whenever enabled SSL, ping, or GET checks are executed, including
+via `scripts/check_ssl.sh`, `scripts/check_ping.sh`, and `scripts/check_http.sh`.
 
 The Settings page also controls whether zero-priced, included OVH service components
 are always hidden from the OVH services table.

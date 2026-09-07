@@ -1,0 +1,80 @@
+from datetime import UTC, datetime
+
+import httpx
+import pytest
+
+from app.http_checker import inspect_url, normalize_http_target
+from app.models import DNSRecord, HTTPCheckResult
+
+
+@pytest.mark.parametrize(
+    ("scheme", "page", "expected"),
+    [
+        ("https", "/health", ("https", "/health")),
+        ("http", "status?full=1", ("http", "/status?full=1")),
+        ("http", "https://example.com/health?deep=1", ("https", "/health?deep=1")),
+    ],
+)
+def test_normalize_http_target(
+    scheme: str, page: str, expected: tuple[str, str]
+) -> None:
+    assert normalize_http_target("example.com", scheme, page) == expected
+
+
+def test_normalize_http_target_rejects_another_host() -> None:
+    with pytest.raises(ValueError, match="must match"):
+        normalize_http_target("example.com", "https", "https://other.example/health")
+
+
+@pytest.mark.asyncio
+async def test_inspect_url_records_success_and_redirect() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(302, headers={"Location": "/ready"})
+        return httpx.Response(204)
+
+    check = await inspect_url(
+        "https://example.com/health", transport=httpx.MockTransport(handler)
+    )
+
+    assert check.status == "healthy"
+    assert check.status_code == 204
+    assert check.final_url == "https://example.com/ready"
+    assert check.latency_ms is not None
+
+
+@pytest.mark.asyncio
+async def test_inspect_url_records_http_error() -> None:
+    check = await inspect_url(
+        "https://example.com/health",
+        transport=httpx.MockTransport(lambda _request: httpx.Response(503)),
+    )
+
+    assert check.status == "http_error"
+    assert check.status_code == 503
+    assert check.error == "Server returned HTTP 503."
+
+
+def test_record_http_display_status() -> None:
+    record = DNSRecord(
+        zone_id=1,
+        cloudflare_id="record-id",
+        record_type="A",
+        name="example.com",
+        content="192.0.2.1",
+        http_check_scheme="https",
+        http_check_path="/health",
+    )
+    assert record.http_check_url == "https://example.com/health"
+    assert record.http_display_status == "pending"
+
+    record.http_result = HTTPCheckResult(
+        url=record.http_check_url,
+        status="healthy",
+        status_code=200,
+        checked_at=datetime.now(UTC),
+    )
+    assert record.http_display_status == "ok"
+
+    record.http_result.status = "timeout"
+    assert record.http_display_status == "danger"

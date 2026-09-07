@@ -7,7 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.models import AppSettings, DNSRecord, PingNotificationState, SSLNotificationState
+from app.http_checker import HTTPCheck
+from app.models import (
+    AppSettings,
+    DNSRecord,
+    HTTPNotificationState,
+    PingNotificationState,
+    SSLNotificationState,
+)
 from app.ping_checker import PingCheck
 from app.proxy import global_proxy
 from app.security import TokenCipher
@@ -151,3 +158,54 @@ async def notify_ping_results(
             else:
                 state.state_key = new_key
         await session.commit()
+
+
+async def notify_http_result(
+    session: AsyncSession,
+    record: DNSRecord,
+    check: HTTPCheck,
+    settings: Settings,
+) -> None:
+    app_settings = await session.get(AppSettings, 1)
+    if (
+        not app_settings
+        or not app_settings.encrypted_telegram_token
+        or not app_settings.telegram_chat_id
+    ):
+        return
+    token = TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_token)
+    proxy = (
+        TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_proxy)
+        if app_settings.encrypted_telegram_proxy
+        else await global_proxy(session, settings)
+    )
+    state = await session.scalar(
+        select(HTTPNotificationState).where(HTTPNotificationState.record_id == record.id)
+    )
+    new_key = "healthy" if check.status == "healthy" else "failure"
+    old_key = state.state_key if state else None
+    message = None
+    if new_key == "failure" and old_key != "failure":
+        code = f"\nHTTP status: {check.status_code}" if check.status_code is not None else ""
+        message = (
+            f"🚨 GET check failed\nHost: {record.name}\nZone: {record.zone.name}"
+            f"\nURL: {check.url}\nStatus: {check.status}{code}"
+            + (f"\nError: {check.error}" if check.error else "")
+        )
+    elif new_key == "healthy" and old_key == "failure":
+        latency = f"\nLatency: {check.latency_ms:.2f} ms" if check.latency_ms is not None else ""
+        message = (
+            f"✅ GET check recovered\nHost: {record.name}\nZone: {record.zone.name}"
+            f"\nURL: {check.url}\nHTTP status: {check.status_code}{latency}"
+        )
+    if message:
+        try:
+            async with TelegramClient(token, proxy) as client:
+                await client.send_message(app_settings.telegram_chat_id, message)
+        except TelegramError:
+            return
+    if state is None:
+        session.add(HTTPNotificationState(record_id=record.id, state_key=new_key))
+    else:
+        state.state_key = new_key
+    await session.commit()
