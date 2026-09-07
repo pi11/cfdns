@@ -20,7 +20,7 @@ _Illustrative dashboard populated with fictional domains and documentation-only 
 - Telegram SSL expiry alerts at 30, 14, 7, and 1 day
 - Fernet-encrypted token storage
 - Search across zone, hostname, record content (including IP addresses), Cloudflare comments, and local comments
-- Manual synchronization and automatic synchronization every 15 minutes
+- Manual synchronization, with Cloudflare/ATW synced every 15 minutes and OVH hourly
 - Local comments that survive Cloudflare synchronization
 - FastAPI, SQLite or PostgreSQL, SQLAlchemy, Alembic, Jinja, and HTMX
 
@@ -30,13 +30,15 @@ _Illustrative dashboard populated with fictional domains and documentation-only 
 - SQLite (included) or PostgreSQL 14 or newer
 - A Cloudflare API token with `Zone:Read` and `DNS:Edit` for the relevant zones
 - OVH credentials with GET rights for `/me`, `/services`, `/services/*`, and the
-  relevant product endpoints
+  relevant product and `serviceInfos` endpoints
 
 OVH credentials are entered in separate Application Key, Application Secret, and
 Consumer Key fields. CFDNS combines and encrypts them as one credential at rest.
 Its OVH client only implements GET requests. Use the narrowest OVH API rights
 possible; product-specific GET rights let synchronization obtain server and VPS IP
-addresses.
+addresses, expiration dates, and renewal settings. The OVH table displays expiration
+for every service when OVH provides it. Manual-renewal services trigger Telegram
+reminders at 30, 14, 7, and 1 day before expiration.
 Select Canada / North America for credentials created at `ca.api.ovh.com`; OVH API
 credentials are region-specific and will be rejected by the European endpoint.
 
@@ -170,7 +172,10 @@ pytest
 ruff check .
 ```
 
-The automatic sync interval can be changed with `SYNC_INTERVAL_MINUTES`. A failed account sync is recorded and displayed in the account panel; other accounts continue synchronizing.
+The Cloudflare and ATW automatic sync interval can be changed with
+`SYNC_INTERVAL_MINUTES`. OVH synchronization runs hourly by default and can be changed
+independently with `OVH_SYNC_INTERVAL_MINUTES`. A failed account sync is recorded and
+displayed in the account panel; other accounts continue synchronizing.
 
 ## SSL certificate monitoring
 
@@ -231,11 +236,13 @@ credentials are encrypted at rest. Telegram credentials are shown in plain text 
 authenticated administrator on the Settings page so they can be inspected and edited.
 Use the explicit removal checkbox to clear the proxy.
 
-Alerts are deduplicated per DNS record and resolved IP. CFDNS sends expiry reminders
+Alerts are deduplicated per monitored resource. CFDNS sends expiry reminders
 when a certificate enters the 30-, 14-, 7-, and 1-day windows, one alert for an SSL
 failure state, and a recovery message after the certificate becomes healthy or is
 renewed. Notifications run whenever enabled SSL, ping, or GET checks are executed, including
-via `scripts/check_ssl.sh`, `scripts/check_ping.sh`, and `scripts/check_http.sh`.
+via `scripts/check_ssl.sh`, `scripts/check_ping.sh`, and `scripts/check_http.sh`. OVH
+manual-renewal expiration reminders use the same windows and run after manual or hourly
+OVH synchronization.
 
 The Settings page also controls whether zero-priced, included OVH service components
 are always hidden from the OVH services table.

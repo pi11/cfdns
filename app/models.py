@@ -73,9 +73,14 @@ class OVHService(TimestampMixin, Base):
     region: Mapped[str | None] = mapped_column(String(100))
     ips: Mapped[str | None] = mapped_column(Text)
     price: Mapped[str | None] = mapped_column(String(100))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    auto_renew: Mapped[bool | None] = mapped_column(Boolean)
     raw_json: Mapped[str | None] = mapped_column(Text)
 
     account: Mapped[OVHAccount] = relationship(back_populates="services")
+    expiration_notification_state: Mapped[OVHExpirationNotificationState | None] = relationship(
+        back_populates="service", cascade="all, delete-orphan", uselist=False
+    )
 
     @property
     def ip_list(self) -> list[str]:
@@ -92,6 +97,36 @@ class OVHService(TimestampMixin, Base):
             return Decimal(match.group().replace(",", "")) == 0
         except InvalidOperation:
             return False
+
+    @property
+    def expiration_display_status(self) -> str:
+        if self.auto_renew is True:
+            return "ok"
+        if self.expires_at is None or self.auto_renew is None:
+            return "pending"
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        remaining = expires_at - datetime.now(UTC)
+        if remaining <= timedelta(days=1):
+            return "danger"
+        if remaining <= timedelta(days=14):
+            return "warning"
+        if remaining <= timedelta(days=30):
+            return "notice"
+        return "ok"
+
+
+class OVHExpirationNotificationState(TimestampMixin, Base):
+    __tablename__ = "ovh_expiration_notification_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    service_id: Mapped[int] = mapped_column(
+        ForeignKey("ovh_services.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    state_key: Mapped[str] = mapped_column(String(64))
+
+    service: Mapped[OVHService] = relationship(back_populates="expiration_notification_state")
 
 
 class AppSettings(TimestampMixin, Base):

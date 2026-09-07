@@ -12,6 +12,9 @@ from app.models import (
     AppSettings,
     DNSRecord,
     HTTPNotificationState,
+    OVHAccount,
+    OVHExpirationNotificationState,
+    OVHService,
     PingNotificationState,
     SSLNotificationState,
 )
@@ -40,6 +43,25 @@ def notification_state(check: EndpointCheck, now: datetime) -> tuple[str, str | 
     return f"expiry:{expires.date().isoformat()}:{threshold}", (
         f"⚠️ SSL certificate expires in {max(days, 0)} day(s)\n"
         f"IP: {check.ip_address}\nExpires: {expires:%Y-%m-%d %H:%M UTC}"
+    )
+
+
+def ovh_expiration_notification_state(
+    service: OVHService, now: datetime
+) -> tuple[str, str | None]:
+    if service.auto_renew is not False or service.expires_at is None:
+        return "not-actionable", None
+    expires = service.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    days = math.ceil((expires - now).total_seconds() / 86400)
+    threshold = next((value for value in EXPIRY_THRESHOLDS if days <= value), None)
+    if threshold is None:
+        return "healthy", None
+    timing = f"expires in {days} day(s)" if days >= 0 else f"expired {abs(days)} day(s) ago"
+    return f"expiry:{expires.date().isoformat()}:{threshold}", (
+        f"⚠️ OVH service {timing}\nService: {service.name}"
+        f"\nType: {service.service_type}\nExpires: {expires:%Y-%m-%d %H:%M UTC}"
     )
 
 
@@ -208,4 +230,54 @@ async def notify_http_result(
         session.add(HTTPNotificationState(record_id=record.id, state_key=new_key))
     else:
         state.state_key = new_key
+    await session.commit()
+
+
+async def notify_ovh_expirations(
+    session: AsyncSession,
+    account: OVHAccount,
+    services: list[OVHService],
+    settings: Settings,
+) -> None:
+    app_settings = await session.get(AppSettings, 1)
+    if (
+        not app_settings
+        or not app_settings.encrypted_telegram_token
+        or not app_settings.telegram_chat_id
+    ):
+        return
+    token = TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_token)
+    proxy = (
+        TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_telegram_proxy)
+        if app_settings.encrypted_telegram_proxy
+        else await global_proxy(session, settings)
+    )
+    now = datetime.now(UTC)
+    async with TelegramClient(token, proxy) as client:
+        for service in services:
+            state = await session.scalar(
+                select(OVHExpirationNotificationState).where(
+                    OVHExpirationNotificationState.service_id == service.id
+                )
+            )
+            new_key, detail = ovh_expiration_notification_state(service, now)
+            if new_key in {"healthy", "not-actionable"}:
+                if state is not None:
+                    await session.delete(state)
+                continue
+            if state is not None and state.state_key == new_key:
+                continue
+            try:
+                await client.send_message(
+                    app_settings.telegram_chat_id,
+                    f"OVH account: {account.name}\n{detail}",
+                )
+            except TelegramError:
+                continue
+            if state is None:
+                session.add(
+                    OVHExpirationNotificationState(service_id=service.id, state_key=new_key)
+                )
+            else:
+                state.state_key = new_key
     await session.commit()

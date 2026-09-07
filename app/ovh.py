@@ -100,24 +100,38 @@ class OVHClient:
             product_name = product.get("name", "") if isinstance(product, dict) else str(product)
             name = resource.get("name")
             details: list[Any] = []
+            service_info_paths: list[str] = []
+            route_url = str((service.get("route") or {}).get("url") or "")
+            if route_url.startswith("/") and not route_url.startswith("/services/"):
+                service_info_paths.append(f"{route_url.rstrip('/')}/serviceInfos")
             if name:
                 encoded = quote(str(name), safe="")
                 paths = []
                 lowered = product_name.lower()
                 if "dedicated" in lowered:
                     paths = [f"/dedicated/server/{encoded}", f"/dedicated/server/{encoded}/ips"]
+                    service_info_paths.append(f"/dedicated/server/{encoded}/serviceInfos")
                 elif "vps" in lowered:
                     paths = [f"/vps/{encoded}", f"/vps/{encoded}/ips"]
+                    service_info_paths.append(f"/vps/{encoded}/serviceInfos")
                 elif "cloud" in lowered:
                     paths = [f"/cloud/project/{encoded}/instance"]
+                    service_info_paths.append(f"/cloud/project/{encoded}/serviceInfos")
                 elif "hosting" in lowered:
                     paths = [f"/hosting/web/{encoded}"]
+                    service_info_paths.append(f"/hosting/web/{encoded}/serviceInfos")
                 for path in paths:
                     try:
                         details.append(await self.get(path))
                     except OVHError:
                         # Permissions and available sub-resources vary by product.
                         continue
+            for path in dict.fromkeys(service_info_paths):
+                try:
+                    service["serviceInfo"] = await self.get(path)
+                    break
+                except OVHError:
+                    continue
             service["productDetails"] = details
             services.append(service)
 
@@ -182,4 +196,11 @@ class OVHClient:
                     # display name so future syncs continue to join the same server.
                     service.setdefault("resource", {})["canonicalName"] = name
                 service.setdefault("productDetails", []).extend(details)
+                if not service.get("serviceInfo"):
+                    try:
+                        service["serviceInfo"] = await self.get(
+                            f"/dedicated/server/{encoded}/serviceInfos"
+                        )
+                    except OVHError:
+                        pass
         return services

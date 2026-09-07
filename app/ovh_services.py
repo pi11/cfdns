@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -24,6 +24,66 @@ def _walk(value: Any, key: str = ""):
             yield from _walk(child, key)
     else:
         yield key.lower(), value
+
+
+def _parse_ovh_date(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime.combine(value, time.min)
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _find_value(value: Any, keys: set[str]) -> Any:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key.lower() in keys and child is not None:
+                return child
+        for child in value.values():
+            found = _find_value(child, keys)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _find_value(child, keys)
+            if found is not None:
+                return found
+    return None
+
+
+def _expiration_and_renewal(remote: dict[str, Any]) -> tuple[datetime | None, bool | None]:
+    service_info = remote.get("serviceInfo") or {}
+    billing = remote.get("billing") or {}
+    expiration_value = (
+        service_info.get("expiration")
+        or service_info.get("expirationDate")
+        or _find_value(billing, {"expiration", "expirationdate"})
+    )
+    expires_at = _parse_ovh_date(expiration_value)
+
+    renew = service_info.get("renew") or _find_value(billing, {"renew"})
+    if isinstance(renew, dict) and isinstance(renew.get("automatic"), bool):
+        return expires_at, renew["automatic"]
+    renewal_type = service_info.get("renewalType") or _find_value(
+        billing, {"renewaltype", "renewalmode", "mode"}
+    )
+    if isinstance(renewal_type, str):
+        normalized = renewal_type.lower()
+        if normalized.startswith("automatic") or normalized in {"auto", "autorenew"}:
+            return expires_at, True
+        if normalized in {"manual", "oneshot", "one-shot"}:
+            return expires_at, False
+    termination_policy = _find_value(billing, {"terminationpolicy"})
+    if isinstance(termination_policy, str) and "terminate" in termination_policy.lower():
+        return expires_at, False
+    return expires_at, None
 
 
 def normalize_service(remote: dict[str, Any]) -> dict[str, Any]:
@@ -61,6 +121,7 @@ def normalize_service(remote: dict[str, Any]) -> dict[str, Any]:
         or plan.get("code")
         or "unknown"
     )
+    expires_at, auto_renew = _expiration_and_renewal(remote)
     return {
         "ovh_id": str(service_id),
         "name": str(name),
@@ -72,6 +133,8 @@ def normalize_service(remote: dict[str, Any]) -> dict[str, Any]:
         "region": resource.get("region") or resource.get("datacenter") or remote.get("region"),
         "ips": json.dumps(sorted(ips)),
         "price": price,
+        "expires_at": expires_at,
+        "auto_renew": auto_renew,
         "raw_json": json.dumps(remote, separators=(",", ":"), default=str),
     }
 
@@ -109,6 +172,14 @@ async def sync_ovh_account(
         account.last_synced_at = datetime.now(UTC)
         account.last_sync_error = None
         await session.commit()
+        current_services = list(
+            await session.scalars(
+                select(OVHService).where(OVHService.account_id == account.id)
+            )
+        )
+        from app.notifications import notify_ovh_expirations
+
+        await notify_ovh_expirations(session, account, current_services, settings)
     except Exception as exc:
         await session.rollback()
         current = await session.get(OVHAccount, account.id)

@@ -32,6 +32,10 @@ async def test_client_only_uses_get_and_enriches_vps_ips() -> None:
             },
             "/vps/vps-1": {"name": "vps-1"},
             "/vps/vps-1/ips": ["192.0.2.5"],
+            "/vps/vps-1/serviceInfos": {
+                "expiration": "2026-10-01",
+                "renew": {"automatic": False},
+            },
             "/dedicated/server": [],
         }
         return httpx.Response(200, json=responses[request.url.path])
@@ -44,6 +48,7 @@ async def test_client_only_uses_get_and_enriches_vps_ips() -> None:
     assert all(request.method == "GET" for request in requests)
     assert requests[0].headers["X-Ovh-Signature"].startswith("$1$")
     assert services[0]["productDetails"][-1] == ["192.0.2.5"]
+    assert services[0]["serviceInfo"]["expiration"] == "2026-10-01"
 
 
 @pytest.mark.asyncio
@@ -80,6 +85,10 @@ async def test_dedicated_servers_are_discovered_independently_of_product_label()
                 "datacenter": "bhs1",
             },
             "/dedicated/server/ns123.ip-192-0-2.net/ips": ["192.0.2.0/28"],
+            "/dedicated/server/ns123.ip-192-0-2.net/serviceInfos": {
+                "expiration": "2026-11-01",
+                "renew": {"automatic": True},
+            },
         }
         return httpx.Response(200, json=responses[request.url.path])
 
@@ -137,6 +146,10 @@ def test_normalize_service_extracts_ip_ranges_and_price() -> None:
                 "datacenter": "gra",
             },
             "billing": {"pricing": {"price": {"value": 1999, "currencyCode": "EUR"}}},
+            "serviceInfo": {
+                "expiration": "2026-10-08",
+                "renewalType": "manual",
+            },
             "productDetails": [{"ip": "192.0.2.5"}, ["2001:db8::/64"]],
         }
     )
@@ -144,6 +157,24 @@ def test_normalize_service_extracts_ip_ranges_and_price() -> None:
     assert normalized["service_type"] == "dedicatedServer"
     assert json.loads(normalized["ips"]) == ["192.0.2.5/32", "2001:db8::/64"]
     assert normalized["price"] == "1999 EUR"
+    assert normalized["expires_at"].isoformat() == "2026-10-08T00:00:00+00:00"
+    assert normalized["auto_renew"] is False
+
+
+def test_normalize_service_extracts_nested_generic_billing_expiration() -> None:
+    normalized = normalize_service(
+        {
+            "serviceId": 43,
+            "resource": {"name": "srv-2"},
+            "billing": {
+                "lifecycle": {"current": {"expirationDate": "2026-12-01T12:00:00Z"}},
+                "renewal": {"current": {"mode": "automatic"}},
+            },
+        }
+    )
+
+    assert normalized["expires_at"].isoformat() == "2026-12-01T12:00:00+00:00"
+    assert normalized["auto_renew"] is True
 
 
 @pytest.mark.parametrize(

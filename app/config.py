@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://cfdns:cfdns@localhost/cfdns"
     encryption_key: str = Field(min_length=1)
     sync_interval_minutes: int = Field(default=15, ge=1, le=1440)
+    ovh_sync_interval_minutes: int = Field(default=60, ge=15, le=1440)
     cloudflare_api_base: str = "https://api.cloudflare.com/client/v4"
     ovh_api_base: str = "https://eu.api.ovh.com/1.0"
     ovh_ca_api_base: str = "https://ca.api.ovh.com/1.0"

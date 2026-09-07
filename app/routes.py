@@ -37,6 +37,7 @@ from app.models import (
     HTTPCheckResult,
     HTTPNotificationState,
     OVHAccount,
+    OVHExpirationNotificationState,
     OVHService,
     PingCheckResult,
     PingNotificationState,
@@ -869,6 +870,11 @@ async def ovh_dashboard(
     )
     if hide_included:
         services = [service for service in services if not service.has_zero_price]
+    expiring_service_count = sum(
+        service.auto_renew is False
+        and service.expiration_display_status in {"notice", "warning", "danger"}
+        for service in services
+    )
     service_groups = [
         list(group)
         for _account_id, group in groupby(services, key=lambda service: service.account_id)
@@ -904,6 +910,7 @@ async def ovh_dashboard(
                 for index, account in enumerate(accounts)
             },
             "services": services,
+            "expiring_service_count": expiring_service_count,
             "service_groups": service_groups,
             "expand_account_groups": bool(q or selected_account_id),
             "account_filter_urls": {
@@ -1035,6 +1042,7 @@ async def remove_telegram_bot(session: AsyncSession = Depends(get_db)):
     await session.execute(delete(SSLNotificationState))
     await session.execute(delete(PingNotificationState))
     await session.execute(delete(HTTPNotificationState))
+    await session.execute(delete(OVHExpirationNotificationState))
     await session.commit()
     return redirect("/settings", message="Telegram bot and notification state removed.")
 
