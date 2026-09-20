@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from cryptography import x509
+from python_socks import ProxyError
+from python_socks.async_.asyncio import Proxy
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -46,20 +48,34 @@ async def resolve_record_addresses(record_type: str, content: str) -> list[str]:
 
 
 async def _read_certificate(
-    hostname: str, ip_address: str, context: ssl.SSLContext
+    hostname: str, ip_address: str, context: ssl.SSLContext, proxy_url: str | None = None
 ) -> datetime | None:
     reader: asyncio.StreamReader | None = None
     writer: asyncio.StreamWriter | None = None
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(
-                host=ip_address,
-                port=TLS_PORT,
-                ssl=context,
-                server_hostname=hostname,
-            ),
-            timeout=CONNECT_TIMEOUT_SECONDS,
-        )
+        if proxy_url:
+            sock = await asyncio.wait_for(
+                Proxy.from_url(proxy_url).connect(dest_host=ip_address, dest_port=TLS_PORT),
+                timeout=CONNECT_TIMEOUT_SECONDS,
+            )
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    sock=sock,
+                    ssl=context,
+                    server_hostname=hostname,
+                ),
+                timeout=CONNECT_TIMEOUT_SECONDS,
+            )
+        else:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    host=ip_address,
+                    port=TLS_PORT,
+                    ssl=context,
+                    server_hostname=hostname,
+                ),
+                timeout=CONNECT_TIMEOUT_SECONDS,
+            )
         ssl_object = writer.get_extra_info("ssl_object")
         certificate_der = ssl_object.getpeercert(binary_form=True) if ssl_object else None
         if not certificate_der:
@@ -71,10 +87,12 @@ async def _read_certificate(
             await writer.wait_closed()
 
 
-async def check_endpoint(hostname: str, ip_address: str) -> EndpointCheck:
+async def check_endpoint(
+    hostname: str, ip_address: str, proxy_url: str | None = None
+) -> EndpointCheck:
     verified_context = ssl.create_default_context()
     try:
-        expires_at = await _read_certificate(hostname, ip_address, verified_context)
+        expires_at = await _read_certificate(hostname, ip_address, verified_context, proxy_url)
         if expires_at is None:
             return EndpointCheck(
                 ip_address, None, "invalid", "The peer did not provide a certificate."
@@ -86,16 +104,18 @@ async def check_endpoint(hostname: str, ip_address: str) -> EndpointCheck:
         unverified_context.check_hostname = False
         unverified_context.verify_mode = ssl.CERT_NONE
         try:
-            expires_at = await _read_certificate(hostname, ip_address, unverified_context)
+            expires_at = await _read_certificate(
+                hostname, ip_address, unverified_context, proxy_url
+            )
         except Exception:
             expires_at = None
         status = "expired" if expires_at and expires_at <= datetime.now(UTC) else "invalid"
         return EndpointCheck(ip_address, expires_at, status, str(exc))
-    except (TimeoutError, OSError, ssl.SSLError) as exc:
+    except (TimeoutError, OSError, ssl.SSLError, ProxyError) as exc:
         return EndpointCheck(ip_address, None, "connection_error", str(exc))
 
 
-async def inspect_record(record: DNSRecord) -> list[EndpointCheck]:
+async def inspect_record(record: DNSRecord, proxy_url: str | None = None) -> list[EndpointCheck]:
     if record.record_type not in ELIGIBLE_RECORD_TYPES or record.proxied:
         return []
     try:
@@ -104,11 +124,18 @@ async def inspect_record(record: DNSRecord) -> list[EndpointCheck]:
         return [EndpointCheck("unresolved", None, "resolution_error", str(exc))]
     if not addresses:
         return [EndpointCheck("unresolved", None, "resolution_error", "No IP addresses found.")]
-    return list(await asyncio.gather(*(check_endpoint(record.name, ip) for ip in addresses)))
+    return list(
+        await asyncio.gather(*(check_endpoint(record.name, ip, proxy_url) for ip in addresses))
+    )
 
 
 async def check_and_store_record(session: AsyncSession, record: DNSRecord) -> list[EndpointCheck]:
-    checks = await inspect_record(record)
+    from app.config import get_settings
+    from app.proxy import ssl_check_proxy
+
+    settings = get_settings()
+    proxy_url = await ssl_check_proxy(session, settings)
+    checks = await inspect_record(record, proxy_url)
     await session.execute(delete(SSLCheckResult).where(SSLCheckResult.record_id == record.id))
     # A record's addresses change when it is edited or its CNAME re-resolves; drop the
     # alert state for addresses that are gone so a returning one starts from scratch.
@@ -131,10 +158,9 @@ async def check_and_store_record(session: AsyncSession, record: DNSRecord) -> li
         for check in checks
     )
     await session.commit()
-    from app.config import get_settings
     from app.notifications import notify_ssl_results
 
-    await notify_ssl_results(session, record, checks, get_settings())
+    await notify_ssl_results(session, record, checks, settings)
     return checks
 
 

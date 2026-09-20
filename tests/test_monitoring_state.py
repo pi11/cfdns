@@ -103,7 +103,9 @@ async def test_rechecking_prunes_state_for_addresses_that_disappeared(
     assert len(RecordingTelegramClient.sent) == 2
 
     # The record now resolves to a single address; the other one must not linger.
-    monkeypatch.setattr(ssl_checker, "inspect_record", lambda _record: _returns(failures[:1]))
+    monkeypatch.setattr(
+        ssl_checker, "inspect_record", lambda _record, _proxy_url=None: _returns(failures[:1])
+    )
     await ssl_checker.check_and_store_record(session, record)
 
     remaining = list(await session.scalars(select(SSLNotificationState)))

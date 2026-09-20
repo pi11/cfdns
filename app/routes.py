@@ -1004,6 +1004,7 @@ async def save_preferences(
 @router.post("/settings/proxy")
 async def save_global_proxy(
     proxy_url: str = Form(""),
+    ssl_check_use_global_proxy: bool = Form(False),
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -1016,6 +1017,9 @@ async def save_global_proxy(
         app_settings.encrypted_global_proxy = TokenCipher(settings.encryption_key).encrypt(proxy)
     else:
         app_settings.encrypted_global_proxy = None
+    app_settings.ssl_check_use_global_proxy = ssl_check_use_global_proxy and bool(
+        app_settings.encrypted_global_proxy
+    )
     await session.commit()
     return redirect("/settings", message="Global API proxy saved.")
 

@@ -153,6 +153,9 @@ class AppSettings(TimestampMixin, Base):
     hide_included_services: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    ssl_check_use_global_proxy: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
 
 
 class SSLNotificationState(TimestampMixin, Base):

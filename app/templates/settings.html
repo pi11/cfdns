@@ -11,7 +11,7 @@
 </section>
 <section class="panel settings-panel">
   <div class="panel-heading"><div><h2>Global API proxy</h2><p>Used by Cloudflare, OVH, ATW, and Telegram unless Telegram has its own override.</p></div></div>
-  <form class="settings-form" action="/settings/proxy" method="post"><label>Proxy URL <span class="muted">(optional)</span><input name="proxy_url" type="text" autocomplete="off" value="{{ global_proxy }}" placeholder="http://user:password@host:port or socks5://host:port"><small>HTTP, HTTPS, and SOCKS5 proxies are supported. Clear this field and save to disable the global proxy.</small></label><div class="form-actions"><button class="button primary" type="submit">Save global proxy</button></div></form>
+  <form class="settings-form" action="/settings/proxy" method="post"><label>Proxy URL <span class="muted">(optional)</span><input name="proxy_url" type="text" autocomplete="off" value="{{ global_proxy }}" placeholder="http://user:password@host:port or socks5://host:port"><small>HTTP, HTTPS, and SOCKS5 proxies are supported. Clear this field and save to disable the global proxy.</small></label><label class="settings-checkbox"><input name="ssl_check_use_global_proxy" type="checkbox" value="true" {% if settings.ssl_check_use_global_proxy %}checked{% endif %}>Also route SSL certificate checks through this proxy</label><div class="form-actions"><button class="button primary" type="submit">Save global proxy</button></div></form>
 </section>
 <section class="panel settings-panel">
   <div class="panel-heading"><div><h2>Telegram notifications</h2><p>SSL and OVH expiration/cancellation alerts plus SSL, ping, and GET failure and recovery events are sent here.</p></div></div>

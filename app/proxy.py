@@ -22,3 +22,10 @@ async def global_proxy(session: AsyncSession, settings: Settings) -> str | None:
     if not app_settings or not app_settings.encrypted_global_proxy:
         return None
     return TokenCipher(settings.encryption_key).decrypt(app_settings.encrypted_global_proxy)
+
+
+async def ssl_check_proxy(session: AsyncSession, settings: Settings) -> str | None:
+    app_settings = await session.get(AppSettings, 1)
+    if not app_settings or not app_settings.ssl_check_use_global_proxy:
+        return None
+    return await global_proxy(session, settings)
