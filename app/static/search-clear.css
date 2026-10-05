@@ -3,8 +3,12 @@
   min-width: 0;
 }
 
-.search-field input[type="search"] {
+.search-field input {
   padding-right: 38px;
+}
+
+.record-form .search-field {
+  margin-top: 6px;
 }
 
 .search-field input[type="search"]::-webkit-search-cancel-button {

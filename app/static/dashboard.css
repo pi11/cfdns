@@ -35,6 +35,10 @@
   stroke: var(--danger);
 }
 
+.metric-icon.expiring {
+  stroke: #f4a75e;
+}
+
 .dns-ip-search {
   display: inline-block;
   text-decoration-color: transparent;
@@ -63,9 +67,18 @@
   color: #ff9999;
 }
 
+.metric-link.warning strong {
+  color: #f4a75e;
+}
+
 .metric-link.active {
   border-color: var(--danger);
   box-shadow: 0 0 0 1px #ef646433;
+}
+
+.metric-link.warning.active {
+  border-color: #f4a75e;
+  box-shadow: 0 0 0 1px #f4a75e33;
 }
 
 @media (max-width: 850px) {

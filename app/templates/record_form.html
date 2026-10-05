@@ -6,8 +6,8 @@
   <form class="record-form" action="{% if record %}/records/{{ record.id }}{% else %}/zones/{{ zone.id }}/records{% endif %}" method="post">
     <div class="form-grid">
       <label>Type<select name="type" required>{% for type in ['A','AAAA','CNAME','MX','TXT','NS','SRV','CAA','PTR'] %}<option value="{{ type }}" {% if record and record.record_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></label>
-      <label class="wide">Name<input name="name" required maxlength="253" value="{{ record.name if record else '' }}" placeholder="www.example.com"></label>
-      <label class="full">Content<input name="content" required value="{{ record.content if record else '' }}" placeholder="192.0.2.1"></label>
+      <div class="wide"><label for="record-name">Name</label><input id="record-name" name="name" data-clearable required maxlength="253" value="{{ record.name if record else '' }}" placeholder="www.example.com"></div>
+      <div class="full"><label for="record-content">Content</label><input id="record-content" name="content" data-clearable required value="{{ record.content if record else '' }}" placeholder="192.0.2.1"></div>
       <label>TTL<select name="ttl"><option value="1" {% if not record or record.ttl == 1 %}selected{% endif %}>Automatic</option>{% for ttl, label in [(60,'1 minute'),(300,'5 minutes'),(1800,'30 minutes'),(3600,'1 hour'),(86400,'1 day')] %}<option value="{{ ttl }}" {% if record and record.ttl == ttl %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
       <label>Priority<input name="priority" type="number" min="0" max="65535" value="{{ record.priority if record and record.priority is not none else '' }}" placeholder="For MX/SRV"></label>
       <label class="checkbox"><input name="proxied" type="checkbox" value="true" {% if record and record.proxied %}checked{% endif %}> Proxy through Cloudflare</label>

@@ -4,6 +4,7 @@ import asyncio
 import hmac
 import ipaddress
 import json
+from datetime import UTC, datetime, timedelta
 from itertools import groupby
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -250,7 +251,7 @@ async def dashboard(
         per_page = "25"
     if proxy_status not in {"", "proxied", "dns_only"}:
         proxy_status = ""
-    if ssl_status not in {"", "error"}:
+    if ssl_status not in {"", "error", "expiring"}:
         ssl_status = ""
     selected_account_id = int(account_id) if account_id.isdigit() else None
     selected_zone_id = int(zone_id) if zone_id.isdigit() else None
@@ -283,6 +284,12 @@ async def dashboard(
         conditions.append(DNSRecord.proxied.is_not(True))
 
     ssl_error_condition = DNSRecord.ssl_results.any(SSLCheckResult.status != "valid")
+    now = datetime.now(UTC)
+    ssl_expiring_condition = DNSRecord.ssl_check_enabled.is_(True) & DNSRecord.ssl_results.any(
+        (SSLCheckResult.status == "valid")
+        & (SSLCheckResult.certificate_expires_at > now)
+        & (SSLCheckResult.certificate_expires_at <= now + timedelta(days=14))
+    )
     ssl_error_count = int(
         await session.scalar(
             select(func.count(SSLCheckResult.id))
@@ -292,8 +299,18 @@ async def dashboard(
         )
         or 0
     )
+    ssl_expiring_count = int(
+        await session.scalar(
+            select(func.count(DNSRecord.id))
+            .join(DNSRecord.zone)
+            .where(*conditions, ssl_expiring_condition)
+        )
+        or 0
+    )
     if ssl_status == "error":
         conditions.append(ssl_error_condition)
+    elif ssl_status == "expiring":
+        conditions.append(ssl_expiring_condition)
 
     total_records = int(
         await session.scalar(
@@ -380,14 +397,14 @@ async def dashboard(
         }
         return f"/?{urlencode(params)}"
 
-    def ssl_error_filter_url() -> str:
+    def ssl_filter_url(status: str) -> str:
         params = {
             "q": q,
             "account_id": selected_account_id or "",
             "zone_id": selected_zone_id or "",
             "record_type": record_type,
             "proxy_status": proxy_status,
-            "ssl_status": "" if ssl_status == "error" else "error",
+            "ssl_status": "" if ssl_status == status else status,
             "per_page": per_page,
             "page": 1,
         }
@@ -408,7 +425,9 @@ async def dashboard(
         "proxy_status": proxy_status,
         "ssl_status": ssl_status,
         "ssl_error_count": ssl_error_count,
-        "ssl_error_filter_url": ssl_error_filter_url(),
+        "ssl_expiring_count": ssl_expiring_count,
+        "ssl_error_filter_url": ssl_filter_url("error"),
+        "ssl_expiring_filter_url": ssl_filter_url("expiring"),
         "proxy_filter_urls": {
             "proxied": proxy_filter_url("proxied"),
             "dns_only": proxy_filter_url("dns_only"),
