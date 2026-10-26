@@ -14,6 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.check_logs import prune_check_logs, ssl_log_entries
 from app.database import SessionLocal
 from app.models import DNSRecord, SSLCheckResult, SSLNotificationState
 
@@ -157,6 +158,7 @@ async def check_and_store_record(session: AsyncSession, record: DNSRecord) -> li
         )
         for check in checks
     )
+    session.add_all(ssl_log_entries(record, checks, checked_at))
     await session.commit()
     from app.notifications import notify_ssl_results
 
@@ -193,4 +195,7 @@ async def check_all_enabled_records() -> tuple[int, int]:
             except Exception:
                 await session.rollback()
                 failed += 1
+        from app.config import get_settings
+
+        await prune_check_logs(session, get_settings().check_log_retention_days)
         return checked, failed

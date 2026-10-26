@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.check_logs import ping_log_entries, prune_check_logs
 from app.database import SessionLocal
 from app.models import DNSRecord, PingCheckResult, PingNotificationState
 from app.ssl_checker import ELIGIBLE_RECORD_TYPES, resolve_record_addresses
@@ -121,6 +122,7 @@ async def store_record_results(
         )
         for check in checks
     )
+    session.add_all(ping_log_entries(record, checks, checked_at))
     await session.commit()
     if notify:
         from app.config import get_settings
@@ -156,4 +158,7 @@ async def check_all_enabled_records() -> tuple[int, int]:
             except Exception:
                 await session.rollback()
                 failed += 1
+        from app.config import get_settings
+
+        await prune_check_logs(session, get_settings().check_log_retention_days)
         return checked, failed

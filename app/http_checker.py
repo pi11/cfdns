@@ -11,6 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.check_logs import http_log_entry, prune_check_logs
 from app.database import SessionLocal
 from app.models import DNSRecord, HTTPCheckResult
 from app.ssl_checker import ELIGIBLE_RECORD_TYPES
@@ -96,6 +97,7 @@ async def store_record_result(
     session: AsyncSession, record: DNSRecord, check: HTTPCheck, *, notify: bool = True
 ) -> None:
     await session.execute(delete(HTTPCheckResult).where(HTTPCheckResult.record_id == record.id))
+    checked_at = datetime.now(UTC)
     session.add(
         HTTPCheckResult(
             record_id=record.id,
@@ -105,9 +107,10 @@ async def store_record_result(
             status_code=check.status_code,
             latency_ms=check.latency_ms,
             error=check.error,
-            checked_at=datetime.now(UTC),
+            checked_at=checked_at,
         )
     )
+    session.add(http_log_entry(record, check, checked_at))
     await session.commit()
     if notify:
         from app.config import get_settings
@@ -157,4 +160,7 @@ async def check_all_enabled_records() -> tuple[int, int]:
             except Exception:
                 await session.rollback()
                 failed += 1
+        from app.config import get_settings
+
+        await prune_check_logs(session, get_settings().check_log_retention_days)
         return checked, failed

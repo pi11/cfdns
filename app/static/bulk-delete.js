@@ -1,6 +1,7 @@
 (() => {
   const actionButton = document.querySelector('#bulk-delete-button');
   const pingButton = document.querySelector('#bulk-ping-button');
+  const sslButton = document.querySelector('#bulk-ssl-button');
   const modal = document.querySelector('#bulk-delete-modal');
   if (!actionButton || !modal) return;
 
@@ -19,6 +20,8 @@
     if (pingButton) pingButton.hidden = selected.length === 0;
     actionButton.querySelector('span').textContent = selected.length;
     if (pingButton) pingButton.querySelector('span').textContent = selected.length;
+    if (sslButton) sslButton.hidden = selected.length === 0;
+    if (sslButton) sslButton.querySelector('span').textContent = selected.length;
     if (selectAll) {
       selectAll.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
       selectAll.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
@@ -68,6 +71,49 @@
     } finally {
       pingButton.disabled = false;
     }
+  });
+
+  const recheckSsl = async (checkbox, errors) => {
+    const row = checkbox.closest('tr');
+    const badge = row.querySelector('[data-ssl-badge]');
+    if (badge) {
+      badge.className = 'ssl-status pending';
+      badge.textContent = 'Checking SSL…';
+    }
+    try {
+      const response = await fetch(`/records/${checkbox.value}/ssl-check`, {
+        method: 'POST',
+        headers: {'HX-Request': 'true', 'HX-Current-URL': window.location.href},
+      });
+      if (!response.ok) throw new Error(await response.text() || 'SSL check failed.');
+      const template = document.createElement('template');
+      template.innerHTML = (await response.text()).trim();
+      const updatedRow = template.content.firstElementChild;
+      updatedRow.hidden = row.hidden;
+      row.replaceWith(updatedRow);
+      updatedRow.querySelector('.record-select').checked = true;
+      window.htmx?.process(updatedRow);
+    } catch (error) {
+      if (badge) {
+        badge.className = 'ssl-status danger';
+        badge.textContent = 'SSL check failed';
+      }
+      errors.push(error.message || 'SSL check failed.');
+    }
+  };
+
+  sslButton?.addEventListener('click', async () => {
+    const queue = selectedCheckboxes();
+    if (!queue.length) return;
+    const errors = [];
+    sslButton.disabled = true;
+    const worker = async () => {
+      while (queue.length) await recheckSsl(queue.shift(), errors);
+    };
+    await Promise.all(Array.from({length: 5}, worker));
+    sslButton.disabled = false;
+    synchronizeSelection();
+    if (errors.length) window.alert(`Some SSL checks failed:\n\n${errors.join('\n')}`);
   });
 
   confirmButton.addEventListener('click', async () => {

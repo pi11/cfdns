@@ -1,0 +1,8 @@
+.logs-filters { grid-template-columns: minmax(260px, 1fr) 150px 150px 150px auto; }
+.logs-table td { font-size: 13px; }
+.log-time { white-space: nowrap; }
+.log-record-link { text-decoration: none; font-weight: 650; overflow-wrap: anywhere; }
+.log-record-link:hover { color: var(--accent2); text-decoration: underline; }
+.log-details span { display: block; }
+.log-details .error-text { max-width: 420px; overflow-wrap: anywhere; }
+@media (max-width: 850px) { .logs-filters, .logs-summary { grid-template-columns: 1fr; } }

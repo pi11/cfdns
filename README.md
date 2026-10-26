@@ -225,6 +225,15 @@ Run all enabled checks manually or from cron:
 GET requests use a 15-second timeout and connect directly rather than through the global
 API proxy. Failure and recovery alerts are deduplicated per DNS record.
 
+### Check logs
+
+Every SSL, ping, and GET check result is also appended to a history table, whether it
+comes from the cron scripts, enabling a check, or **Ping selected**. Open **Check logs**
+in the navigation to browse it, filter by check type, result, or search text, or follow
+a record's **Logs** link to see only its history. Entries older than
+`CHECK_LOG_RETENTION_DAYS` (default 30; `0` keeps everything) are pruned after each
+scheduled check run.
+
 ### Telegram alerts
 
 Open **Settings**, save a bot token created with BotFather, and either enter the

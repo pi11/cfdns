@@ -134,8 +134,13 @@ async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch)
     monkeypatch.setattr(http_checker, "SessionLocal", FakeSession)
     monkeypatch.setattr(http_checker, "inspect_record", inspect_record)
     monkeypatch.setattr(http_checker, "store_record_result", store_record_result)
+    monkeypatch.setattr(http_checker, "prune_check_logs", lambda *_args: _noop())
 
     checked, failed = await http_checker.check_all_enabled_records()
 
     assert stored == [2]
     assert (checked, failed) == (1, 1)
+
+
+async def _noop() -> None:
+    return None

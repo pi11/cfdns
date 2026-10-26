@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Check logs · CFDNS{% endblock %}
+{% block content %}
+<section class="summary-grid logs-summary">
+  <div class="metric"><strong>{{ total_logs }}</strong><span>Matching check results</span></div>
+  <a class="metric metric-link danger {% if result == 'failed' %}active{% endif %}" href="{{ failed_filter_url }}" title="{% if result == 'failed' %}Show all results{% else %}Show only failed results{% endif %}"><strong>{{ failed_logs }}</strong><span>Failed results</span></a>
+  <div class="metric"><strong>{% if retention_days %}{{ retention_days }} days{% else %}Forever{% endif %}</strong><span>History retention</span></div>
+</section>
+<section class="panel">
+  <div class="panel-heading"><div><h1>Check logs</h1><p>Every SSL, ping, and GET check result, newest first.{% if record_id %} Showing one record · <a href="/logs?{{ {'q': q, 'check_type': check_type, 'result': result, 'per_page': per_page}|urlencode }}">show all records</a>{% endif %}</p></div></div>
+  <form class="filters logs-filters" action="/logs" method="get">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search record, IP, URL, or error…">
+    <select name="check_type" onchange="this.form.submit()"><option value="">All checks</option>{% for value, label in check_types.items() %}<option value="{{ value }}" {% if check_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <select name="result" onchange="this.form.submit()"><option value="">All results</option><option value="ok" {% if result == 'ok' %}selected{% endif %}>OK</option><option value="failed" {% if result == 'failed' %}selected{% endif %}>Failed</option></select>
+    <select name="per_page" onchange="this.form.submit()">{% for size in ['50', '100', '250'] %}<option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }} per page</option>{% endfor %}</select>
+    {% if record_id %}<input type="hidden" name="record_id" value="{{ record_id }}">{% endif %}
+    <button class="button" type="submit">Search</button>
+  </form>
+  {% if logs %}
+  <div class="table-wrap"><table class="logs-table">
+    <thead><tr><th>Checked</th><th>Check</th><th>Record</th><th>Target</th><th>Result</th><th>Details</th></tr></thead>
+    <tbody>{% for log in logs %}
+      <tr>
+        <td class="log-time">{{ log.checked_at.strftime('%Y-%m-%d %H:%M:%S') }}<small>UTC</small></td>
+        <td><span class="type-badge">{{ check_types.get(log.check_type, log.check_type) }}</span></td>
+        <td>{% if log.record_id %}<a class="log-record-link" href="/logs?record_id={{ log.record_id }}" title="Show history for this record">{{ log.record_name }}</a>{% else %}{{ log.record_name }}<small>Record deleted</small>{% endif %}</td>
+        <td><code>{{ log.target }}</code></td>
+        <td><span class="ssl-status {{ 'ok' if log.success else 'danger' }}">{{ log.status|replace('_', ' ') }}</span></td>
+        <td class="log-details">{% if log.status_code is not none %}<span>HTTP {{ log.status_code }}</span>{% endif %}{% if log.latency_ms is not none %}<span>{{ '%.1f'|format(log.latency_ms) }} ms</span>{% endif %}{% if log.certificate_expires_at %}<span>Expires {{ log.certificate_expires_at.strftime('%Y-%m-%d') }}</span>{% endif %}{% if log.error %}<small class="error-text">{{ log.error }}</small>{% endif %}{% if log.status_code is none and log.latency_ms is none and not log.certificate_expires_at and not log.error %}<span class="muted">—</span>{% endif %}</td>
+      </tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <div class="pagination-bar"><span>{{ first_log }}–{{ last_log }} of {{ total_logs }}</span><nav class="pagination">{% if previous_url %}<a href="{{ previous_url }}">‹</a>{% endif %}{% for number, url in page_links %}<a href="{{ url }}" {% if number == page %}class="active"{% endif %}>{{ number }}</a>{% endfor %}{% if next_url %}<a href="{{ next_url }}">›</a>{% endif %}</nav></div>
+  {% else %}<div class="empty large"><strong>No check results logged</strong><span>Enable SSL, ping, or GET checks on DNS records, or adjust the filters.</span></div>{% endif %}
+</section>
+{% endblock %}

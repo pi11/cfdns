@@ -26,6 +26,7 @@ from app import http_checker, ping_checker
 from app.atw import ATWClient, ATWError
 from app.atw_services import sync_atw_account
 from app.auth import COOKIE_NAME, session_token
+from app.check_logs import CHECK_TYPES
 from app.cloudflare import CloudflareClient, CloudflareError
 from app.config import Settings, get_settings
 from app.database import get_db
@@ -34,6 +35,7 @@ from app.models import (
     AppSettings,
     ATWAccount,
     ATWService,
+    CheckLog,
     DNSRecord,
     HTTPCheckResult,
     HTTPNotificationState,
@@ -754,6 +756,49 @@ async def toggle_ssl_check(
     return redirect("/", message=f"SSL checks {state} for {record.name}.")
 
 
+@router.post("/records/{record_id}/ssl-check")
+async def recheck_ssl(
+    request: Request,
+    record_id: int,
+    session: AsyncSession = Depends(get_db),
+):
+    record = await load_record(session, record_id)
+    if not record.ssl_check_enabled:
+        return PlainTextResponse(f"SSL checks are not enabled for {record.name}.", status_code=409)
+    await check_and_store_record(session, record)
+    await session.refresh(record, ["ssl_results"])
+    current_params = parse_qs(urlparse(request.headers.get("HX-Current-URL", "/")).query)
+    current_proxy_status = current_params.get("proxy_status", [""])[0]
+
+    def proxy_url(status: str) -> str:
+        params = {
+            "q": current_params.get("q", [""])[0],
+            "account_id": current_params.get("account_id", [""])[0],
+            "zone_id": current_params.get("zone_id", [""])[0],
+            "record_type": current_params.get("record_type", [""])[0],
+            "proxy_status": "" if current_proxy_status == status else status,
+            "per_page": current_params.get("per_page", ["25"])[0],
+            "page": 1,
+        }
+        return f"/?{urlencode(params)}"
+
+    return templates.TemplateResponse(
+        request,
+        "partials/record_row.html",
+        {
+            "record": record,
+            "ovh_matches": await ovh_matches_for_records(session, [record]),
+            "atw_matches": await atw_matches_for_records(session, [record]),
+            "ssl_eligible_types": ELIGIBLE_RECORD_TYPES,
+            "proxy_status": current_proxy_status,
+            "proxy_filter_urls": {
+                "proxied": proxy_url("proxied"),
+                "dns_only": proxy_url("dns_only"),
+            },
+        },
+    )
+
+
 @router.post("/records/{record_id}/ping-toggle")
 async def toggle_ping_check(
     request: Request,
@@ -862,6 +907,106 @@ async def toggle_http_check(
         )
     state = "enabled" if record.http_check_enabled else "disabled"
     return redirect("/", message=f"GET checks {state} for {record.name}.")
+
+
+@router.get("/logs", response_class=HTMLResponse)
+async def check_logs_page(
+    request: Request,
+    q: str = Query(default="", max_length=300),
+    check_type: str = "",
+    result: str = "",
+    record_id: str = "",
+    page: int = Query(default=1, ge=1),
+    per_page: str = "50",
+    session: AsyncSession = Depends(get_db),
+):
+    if check_type not in CHECK_TYPES:
+        check_type = ""
+    if result not in {"", "ok", "failed"}:
+        result = ""
+    if per_page not in {"50", "100", "250"}:
+        per_page = "50"
+    selected_record_id = int(record_id) if record_id.isdigit() else None
+    conditions = []
+    if q:
+        pattern = search_pattern(q)
+        conditions.append(
+            or_(
+                CheckLog.record_name.ilike(pattern, escape="\\"),
+                CheckLog.target.ilike(pattern, escape="\\"),
+                CheckLog.error.ilike(pattern, escape="\\"),
+            )
+        )
+    if check_type:
+        conditions.append(CheckLog.check_type == check_type)
+    if result:
+        conditions.append(CheckLog.success.is_(result == "ok"))
+    if selected_record_id:
+        conditions.append(CheckLog.record_id == selected_record_id)
+
+    total_logs = int(
+        await session.scalar(select(func.count(CheckLog.id)).where(*conditions)) or 0
+    )
+    failed_logs = int(
+        await session.scalar(
+            select(func.count(CheckLog.id)).where(*conditions, CheckLog.success.is_(False))
+        )
+        or 0
+    )
+    page_size = int(per_page)
+    total_pages = max(1, (total_logs + page_size - 1) // page_size)
+    page = min(page, total_pages)
+    logs = list(
+        await session.scalars(
+            select(CheckLog)
+            .where(*conditions)
+            .order_by(CheckLog.checked_at.desc(), CheckLog.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+
+    def logs_url(**overrides: object) -> str:
+        params = {
+            "q": q,
+            "check_type": check_type,
+            "result": result,
+            "record_id": selected_record_id or "",
+            "per_page": per_page,
+            "page": 1,
+        }
+        params.update(overrides)
+        return f"/logs?{urlencode(params)}"
+
+    page_links = [
+        (number, logs_url(page=number))
+        for number in range(max(1, page - 2), min(total_pages, page + 2) + 1)
+    ]
+    return await render_template(
+        request,
+        session,
+        "logs.html",
+        {
+            "logs": logs,
+            "q": q,
+            "check_type": check_type,
+            "check_types": CHECK_TYPES,
+            "result": result,
+            "record_id": selected_record_id,
+            "per_page": per_page,
+            "page": page,
+            "total_pages": total_pages,
+            "total_logs": total_logs,
+            "failed_logs": failed_logs,
+            "failed_filter_url": logs_url(result="" if result == "failed" else "failed"),
+            "first_log": 0 if total_logs == 0 else (page - 1) * page_size + 1,
+            "last_log": min(page * page_size, total_logs),
+            "page_links": page_links,
+            "previous_url": logs_url(page=page - 1) if page > 1 else None,
+            "next_url": logs_url(page=page + 1) if page < total_pages else None,
+            "retention_days": get_settings().check_log_retention_days,
+        },
+    )
 
 
 @router.get("/ovh", response_class=HTMLResponse)
@@ -1471,3 +1616,4 @@ async def ping_selected_records(
         if record_id not in found_ids
     )
     return JSONResponse({"results": results})
+
