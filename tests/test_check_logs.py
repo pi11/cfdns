@@ -11,7 +11,14 @@ from app.config import get_settings
 from app.database import get_db
 from app.http_checker import HTTPCheck
 from app.main import app
-from app.models import CheckLog, DNSRecord, PingCheckResult, Zone
+from app.models import (
+    CheckLog,
+    DNSRecord,
+    HTTPCheckResult,
+    HTTPDirectCheckResult,
+    PingCheckResult,
+    Zone,
+)
 from app.ping_checker import PingCheck
 
 
@@ -59,6 +66,31 @@ async def test_every_check_run_is_appended_to_the_log(session) -> None:
     assert logs[0].latency_ms == 12.5
     assert logs[2].status_code == 503
     assert all(log.record_name == "a.example.com" for log in logs)
+
+
+@pytest.mark.asyncio
+async def test_public_and_direct_get_results_are_independent(session) -> None:
+    record = await _record(session)
+    record.proxied = True
+    await session.commit()
+    await http_checker.store_record_result(
+        session, record, HTTPCheck(record.http_check_url, None, "healthy", 200), notify=False
+    )
+    await http_checker.store_record_result(
+        session, record, HTTPCheck(record.http_check_url, None, "connection_error"),
+        notify=False, direct=True,
+    )
+
+    public = await session.scalar(select(HTTPCheckResult))
+    direct = await session.scalar(select(HTTPDirectCheckResult))
+    logs = list(await session.scalars(select(CheckLog).order_by(CheckLog.id)))
+    assert public.status == "healthy"
+    assert direct.status == "connection_error"
+    assert direct.origin == "192.0.2.1"
+    assert "origin 192.0.2.1" in logs[1].target
+    assert [(log.check_type, log.success) for log in logs] == [
+        ("http", True), ("direct", False)
+    ]
 
 
 @pytest.mark.asyncio

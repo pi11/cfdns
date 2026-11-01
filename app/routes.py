@@ -38,6 +38,8 @@ from app.models import (
     CheckLog,
     DNSRecord,
     HTTPCheckResult,
+    HTTPDirectCheckResult,
+    HTTPDirectNotificationState,
     HTTPNotificationState,
     OVHAccount,
     OVHExpirationNotificationState,
@@ -228,6 +230,7 @@ async def load_record(session: AsyncSession, record_id: int) -> DNSRecord:
             selectinload(DNSRecord.ssl_results),
             selectinload(DNSRecord.ping_results),
             selectinload(DNSRecord.http_result),
+            selectinload(DNSRecord.http_direct_result),
         )
         .where(DNSRecord.id == record_id)
     )
@@ -332,6 +335,7 @@ async def dashboard(
             selectinload(DNSRecord.ssl_results),
             selectinload(DNSRecord.ping_results),
             selectinload(DNSRecord.http_result),
+            selectinload(DNSRecord.http_direct_result),
         )
         .where(*conditions)
         .order_by(
@@ -538,6 +542,7 @@ async def create_record(
     ssl_check_enabled: bool = Form(False),
     ping_check_enabled: bool = Form(False),
     http_check_enabled: bool = Form(False),
+    http_check_direct_enabled: bool = Form(False),
     http_check_scheme: str = Form("https"),
     http_check_page: str = Form("/"),
     session: AsyncSession = Depends(get_db),
@@ -581,6 +586,9 @@ async def create_record(
         record.http_check_enabled = (
             http_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
         )
+        record.http_check_direct_enabled = (
+            http_check_direct_enabled and record.http_check_enabled and bool(record.proxied)
+        )
         record.http_check_scheme = http_check_scheme
         record.http_check_path = http_check_path
         session.add(record)
@@ -591,6 +599,8 @@ async def create_record(
             await ping_checker.check_and_store_record(session, record)
         if record.http_check_enabled:
             await http_checker.check_and_store_record(session, record)
+        if record.http_check_direct_enabled:
+            await http_checker.check_and_store_record(session, record, direct=True)
     except CloudflareError as exc:
         return redirect(f"/zones/{zone_id}/records/new", error=str(exc))
     return redirect("/", message=f"DNS record {record.name} created.")
@@ -623,6 +633,7 @@ async def update_record(
     ssl_check_enabled: bool = Form(False),
     ping_check_enabled: bool = Form(False),
     http_check_enabled: bool = Form(False),
+    http_check_direct_enabled: bool = Form(False),
     http_check_scheme: str = Form("https"),
     http_check_page: str = Form("/"),
     session: AsyncSession = Depends(get_db),
@@ -662,6 +673,9 @@ async def update_record(
         record.http_check_enabled = (
             http_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
         )
+        record.http_check_direct_enabled = (
+            http_check_direct_enabled and record.http_check_enabled and bool(record.proxied)
+        )
         record.http_check_scheme = http_check_scheme
         record.http_check_path = http_check_path
         if not record.ssl_check_enabled:
@@ -687,6 +701,15 @@ async def update_record(
                     HTTPNotificationState.record_id == record.id
                 )
             )
+        if not record.http_check_direct_enabled:
+            await session.execute(
+                delete(HTTPDirectCheckResult).where(HTTPDirectCheckResult.record_id == record.id)
+            )
+            await session.execute(
+                delete(HTTPDirectNotificationState).where(
+                    HTTPDirectNotificationState.record_id == record.id
+                )
+            )
         await session.commit()
         if record.ssl_check_enabled:
             await check_and_store_record(session, record)
@@ -694,6 +717,8 @@ async def update_record(
             await ping_checker.check_and_store_record(session, record)
         if record.http_check_enabled:
             await http_checker.check_and_store_record(session, record)
+        if record.http_check_direct_enabled:
+            await http_checker.check_and_store_record(session, record, direct=True)
     except CloudflareError as exc:
         return redirect(f"/records/{record_id}/edit", error=str(exc))
     return redirect("/", message=f"DNS record {record.name} updated.")
@@ -872,8 +897,19 @@ async def toggle_http_check(
         await session.execute(
             delete(HTTPNotificationState).where(HTTPNotificationState.record_id == record.id)
         )
+        record.http_check_direct_enabled = False
+        await session.execute(
+            delete(HTTPDirectCheckResult).where(HTTPDirectCheckResult.record_id == record.id)
+        )
+        await session.execute(
+            delete(HTTPDirectNotificationState).where(
+                HTTPDirectNotificationState.record_id == record.id
+            )
+        )
         await session.commit()
-    await session.refresh(record, ["ssl_results", "ping_results", "http_result"])
+    await session.refresh(
+        record, ["ssl_results", "ping_results", "http_result", "http_direct_result"]
+    )
     if request.headers.get("HX-Request"):
         current_params = parse_qs(urlparse(request.headers.get("HX-Current-URL", "/")).query)
         current_proxy_status = current_params.get("proxy_status", [""])[0]
@@ -1242,6 +1278,7 @@ async def remove_telegram_bot(session: AsyncSession = Depends(get_db)):
     await session.execute(delete(SSLNotificationState))
     await session.execute(delete(PingNotificationState))
     await session.execute(delete(HTTPNotificationState))
+    await session.execute(delete(HTTPDirectNotificationState))
     await session.execute(delete(OVHExpirationNotificationState))
     await session.commit()
     return redirect("/settings", message="Telegram bot and notification state removed.")

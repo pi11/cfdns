@@ -192,6 +192,16 @@ class HTTPNotificationState(TimestampMixin, Base):
     state_key: Mapped[str] = mapped_column(String(64))
 
 
+class HTTPDirectNotificationState(TimestampMixin, Base):
+    __tablename__ = "http_direct_notification_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    record_id: Mapped[int] = mapped_column(
+        ForeignKey("dns_records.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    state_key: Mapped[str] = mapped_column(String(64))
+
+
 class ATWAccount(TimestampMixin, Base):
     __tablename__ = "atw_accounts"
 
@@ -271,6 +281,9 @@ class DNSRecord(TimestampMixin, Base):
     ssl_check_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     ping_check_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     http_check_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    http_check_direct_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     http_check_scheme: Mapped[str] = mapped_column(
         String(5), default="https", server_default="https"
     )
@@ -287,6 +300,9 @@ class DNSRecord(TimestampMixin, Base):
     http_result: Mapped[HTTPCheckResult | None] = relationship(
         back_populates="record", cascade="all, delete-orphan", uselist=False
     )
+    http_direct_result: Mapped[HTTPDirectCheckResult | None] = relationship(
+        back_populates="record", cascade="all, delete-orphan", uselist=False
+    )
 
     @property
     def http_check_url(self) -> str:
@@ -297,6 +313,12 @@ class DNSRecord(TimestampMixin, Base):
         if self.http_result is None:
             return "pending"
         return "ok" if self.http_result.status == "healthy" else "danger"
+
+    @property
+    def http_direct_display_status(self) -> str:
+        if self.http_direct_result is None:
+            return "pending"
+        return "ok" if self.http_direct_result.status == "healthy" else "danger"
 
     @property
     def ping_display_status(self) -> str:
@@ -392,6 +414,25 @@ class HTTPCheckResult(Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     record: Mapped[DNSRecord] = relationship(back_populates="http_result")
+
+
+class HTTPDirectCheckResult(Base):
+    __tablename__ = "http_direct_check_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    record_id: Mapped[int] = mapped_column(
+        ForeignKey("dns_records.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    url: Mapped[str] = mapped_column(String(2400))
+    final_url: Mapped[str | None] = mapped_column(String(2400))
+    origin: Mapped[str] = mapped_column(String(2048))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    status_code: Mapped[int | None] = mapped_column(Integer)
+    latency_ms: Mapped[float | None] = mapped_column(Float)
+    error: Mapped[str | None] = mapped_column(Text)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    record: Mapped[DNSRecord] = relationship(back_populates="http_direct_result")
 
 
 class CheckLog(Base):

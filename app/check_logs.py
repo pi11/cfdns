@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from app.ping_checker import PingCheck
     from app.ssl_checker import EndpointCheck
 
-CHECK_TYPES = {"ssl": "SSL", "ping": "Ping", "http": "GET"}
+CHECK_TYPES = {"ssl": "SSL", "ping": "Ping", "http": "GET", "direct": "GET direct"}
 
 
 def ssl_log_entries(
@@ -54,12 +54,14 @@ def ping_log_entries(
     ]
 
 
-def http_log_entry(record: DNSRecord, check: HTTPCheck, checked_at: datetime) -> CheckLog:
+def http_log_entry(
+    record: DNSRecord, check: HTTPCheck, checked_at: datetime, *, direct: bool = False
+) -> CheckLog:
     return CheckLog(
-        check_type="http",
+        check_type="direct" if direct else "http",
         record_id=record.id,
         record_name=record.name,
-        target=check.url,
+        target=f"{check.url} (origin {record.content})"[:2400] if direct else check.url,
         status=check.status,
         success=check.status == "healthy",
         status_code=check.status_code,

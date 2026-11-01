@@ -215,6 +215,9 @@ records. Choose HTTP or HTTPS and enter either a page path such as `/health` or 
 same-host URL such as `https://example.com/health`. Checks follow redirects and consider
 the final response healthy when it has a 2xx status. The final URL, HTTP status, latency,
 error, and last check time are stored and displayed.
+For a Cloudflare-proxied record, you can also enable a direct origin GET check. It connects
+to the record content while sending the record name as the HTTP Host and HTTPS TLS server
+name. Public and direct checks have separate results, history, and failure/recovery alerts.
 
 Run all enabled checks manually or from cron:
 

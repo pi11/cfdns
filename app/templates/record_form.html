@@ -14,6 +14,7 @@
       <label id="ssl-check-option" class="checkbox"><input name="ssl_check_enabled" type="checkbox" value="true" {% if record and record.ssl_check_enabled %}checked{% endif %}> Check SSL certificate on port 443</label>
       <label id="ping-check-option" class="checkbox"><input name="ping_check_enabled" type="checkbox" value="true" {% if record and record.ping_check_enabled %}checked{% endif %}> Check reachability with ping</label>
       <label id="http-check-option" class="checkbox"><input name="http_check_enabled" type="checkbox" value="true" {% if record and record.http_check_enabled %}checked{% endif %}> Check page with GET</label>
+      <label id="http-direct-option" class="checkbox"><input name="http_check_direct_enabled" type="checkbox" value="true" {% if record and record.http_check_direct_enabled %}checked{% endif %}> Also check GET directly at the origin</label>
       <label id="http-scheme-option">GET protocol<select name="http_check_scheme"><option value="https" {% if not record or record.http_check_scheme == 'https' %}selected{% endif %}>HTTPS</option><option value="http" {% if record and record.http_check_scheme == 'http' %}selected{% endif %}>HTTP</option></select></label>
       <label id="http-page-option" class="wide">GET page<input name="http_check_page" maxlength="2048" value="{{ record.http_check_path if record else '/' }}" placeholder="/health or https://example.com/health"><small>Enter a path or a full URL whose host matches the record name.</small></label>
       <label class="full">Cloudflare comment<textarea name="cloudflare_comment" maxlength="100" placeholder="Stored in Cloudflare">{{ record.cloudflare_comment if record and record.cloudflare_comment else '' }}</textarea></label>
@@ -55,6 +56,17 @@
     {% else %}<p class="empty">The first check has not completed yet.</p>{% endif %}
   </section>
   {% endif %}
+  {% if record and record.http_check_direct_enabled %}
+  <section class="ssl-details">
+    <h2>GET request without Cloudflare proxy</h2>
+    <p>Connects to <code>{{ record.content }}</code> with <code>{{ record.name }}</code> as the Host and TLS server name. Redirects to the same domain also use the origin.</p>
+    {% if record.http_direct_result %}
+    <table><thead><tr><th>URL</th><th>Origin</th><th>Status</th><th>HTTP code</th><th>Latency</th><th>Last checked</th><th>Error</th></tr></thead>
+      <tbody><tr><td><code>{{ record.http_direct_result.url }}</code>{% if record.http_direct_result.final_url and record.http_direct_result.final_url != record.http_direct_result.url %}<small>→ {{ record.http_direct_result.final_url }}</small>{% endif %}</td><td><code>{{ record.http_direct_result.origin }}</code></td><td><span class="ssl-status {% if record.http_direct_result.status == 'healthy' %}ok{% else %}danger{% endif %}">{{ record.http_direct_result.status|replace('_', ' ') }}</span></td><td>{{ record.http_direct_result.status_code or '—' }}</td><td>{{ '%.2f ms'|format(record.http_direct_result.latency_ms) if record.http_direct_result.latency_ms is not none else '—' }}</td><td>{{ record.http_direct_result.checked_at.strftime('%Y-%m-%d %H:%M UTC') }}</td><td class="ssl-error">{{ record.http_direct_result.error or '—' }}</td></tr></tbody>
+    </table>
+    {% else %}<p class="empty">The first check has not completed yet.</p>{% endif %}
+  </section>
+  {% endif %}
 </section>
 <script>
   (() => {
@@ -66,6 +78,8 @@
     const pingCheckbox = pingOption.querySelector('input');
     const httpOption = document.querySelector('#http-check-option');
     const httpCheckbox = httpOption.querySelector('input');
+    const httpDirectOption = document.querySelector('#http-direct-option');
+    const httpDirectCheckbox = httpDirectOption.querySelector('input');
     const httpSchemeOption = document.querySelector('#http-scheme-option');
     const httpPageOption = document.querySelector('#http-page-option');
     const refresh = () => {
@@ -80,11 +94,16 @@
       httpOption.hidden = !pingVisible;
       httpCheckbox.disabled = !pingVisible;
       if (!pingVisible) httpCheckbox.checked = false;
+      const directVisible = pingVisible && proxied.checked && httpCheckbox.checked;
+      httpDirectOption.hidden = !directVisible;
+      httpDirectCheckbox.disabled = !directVisible;
+      if (!directVisible) httpDirectCheckbox.checked = false;
       httpSchemeOption.hidden = !pingVisible;
       httpPageOption.hidden = !pingVisible;
     };
     type.addEventListener('change', refresh);
     proxied.addEventListener('change', refresh);
+    httpCheckbox.addEventListener('change', refresh);
     refresh();
   })();
 </script>

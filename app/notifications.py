@@ -11,6 +11,7 @@ from app.http_checker import HTTPCheck
 from app.models import (
     AppSettings,
     DNSRecord,
+    HTTPDirectNotificationState,
     HTTPNotificationState,
     OVHAccount,
     OVHExpirationNotificationState,
@@ -207,6 +208,8 @@ async def notify_http_result(
     record: DNSRecord,
     check: HTTPCheck,
     settings: Settings,
+    *,
+    direct: bool = False,
 ) -> None:
     app_settings = await session.get(AppSettings, 1)
     if (
@@ -221,24 +224,25 @@ async def notify_http_result(
         if app_settings.encrypted_telegram_proxy
         else await global_proxy(session, settings)
     )
-    state = await session.scalar(
-        select(HTTPNotificationState).where(HTTPNotificationState.record_id == record.id)
-    )
+    state_model = HTTPDirectNotificationState if direct else HTTPNotificationState
+    state = await session.scalar(select(state_model).where(state_model.record_id == record.id))
     new_key = "healthy" if check.status == "healthy" else "failure"
     old_key = state.state_key if state else None
     message = None
+    label = "GET direct" if direct else "GET"
+    origin = f"\nOrigin: {record.content}" if direct else ""
     if new_key == "failure" and old_key != "failure":
         code = f"\nHTTP status: {check.status_code}" if check.status_code is not None else ""
         message = (
-            f"🚨 GET check failed\nHost: {record.name}\nZone: {record.zone.name}"
-            f"\nURL: {check.url}\nStatus: {check.status}{code}"
+            f"🚨 {label} check failed\nHost: {record.name}\nZone: {record.zone.name}"
+            f"\nURL: {check.url}{origin}\nStatus: {check.status}{code}"
             + (f"\nError: {check.error}" if check.error else "")
         )
     elif new_key == "healthy" and old_key == "failure":
         latency = f"\nLatency: {check.latency_ms:.2f} ms" if check.latency_ms is not None else ""
         message = (
-            f"✅ GET check recovered\nHost: {record.name}\nZone: {record.zone.name}"
-            f"\nURL: {check.url}\nHTTP status: {check.status_code}{latency}"
+            f"✅ {label} check recovered\nHost: {record.name}\nZone: {record.zone.name}"
+            f"\nURL: {check.url}{origin}\nHTTP status: {check.status_code}{latency}"
         )
     if message:
         try:
@@ -247,7 +251,7 @@ async def notify_http_result(
         except TelegramError:
             return
     if state is None:
-        session.add(HTTPNotificationState(record_id=record.id, state_key=new_key))
+        session.add(state_model(record_id=record.id, state_key=new_key))
     else:
         state.state_key = new_key
     await session.commit()

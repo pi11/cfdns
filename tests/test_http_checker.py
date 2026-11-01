@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from app.http_checker import HTTPCheck, inspect_url, normalize_http_target
+from app.http_checker import DirectOriginTransport, HTTPCheck, inspect_url, normalize_http_target
 from app.models import DNSRecord, HTTPCheckResult
 
 
@@ -53,6 +53,32 @@ async def test_inspect_url_records_http_error() -> None:
     assert check.status == "http_error"
     assert check.status_code == 503
     assert check.error == "Server returned HTTP 503."
+
+
+@pytest.mark.asyncio
+async def test_direct_origin_keeps_host_and_tls_name_through_redirects() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/health":
+            return httpx.Response(302, headers={"Location": "/ready"})
+        return httpx.Response(204)
+
+    check = await inspect_url(
+        "https://example.com/health",
+        transport=DirectOriginTransport(
+            "example.com", "192.0.2.1", httpx.MockTransport(handler)
+        ),
+    )
+
+    assert check.status == "healthy"
+    assert check.final_url == "https://example.com/ready"
+    assert [str(request.url) for request in seen] == [
+        "https://192.0.2.1/health", "https://192.0.2.1/ready"
+    ]
+    assert all(request.headers["Host"] == "example.com" for request in seen)
+    assert all(request.extensions["sni_hostname"] == "example.com" for request in seen)
 
 
 def test_record_http_display_status() -> None:
@@ -105,10 +131,12 @@ async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch)
             name=f"host{index}.example.com",
             content="192.0.2.1",
             http_check_enabled=True,
+            http_check_direct_enabled=index == 2,
+            proxied=index == 2,
         )
         for index in (1, 2)
     ]
-    stored: list[int] = []
+    stored: list[tuple[int, bool]] = []
 
     class FakeSession:
         async def __aenter__(self) -> "FakeSession":
@@ -123,13 +151,15 @@ async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch)
         async def rollback(self) -> None:
             return None
 
-    async def inspect_record(record: DNSRecord) -> HTTPCheck:
+    async def inspect_record(record: DNSRecord, *, direct: bool = False) -> HTTPCheck:
         if record.id == 1:
             await explode(record)
+        if direct:
+            return HTTPCheck(record.http_check_url, None, "http_error", 503)
         return HTTPCheck(record.http_check_url, None, "healthy", 200, 1.0)
 
-    async def store_record_result(_session, record, _check, **_kwargs) -> None:
-        stored.append(record.id)
+    async def store_record_result(_session, record, _check, **kwargs) -> None:
+        stored.append((record.id, kwargs.get("direct", False)))
 
     monkeypatch.setattr(http_checker, "SessionLocal", FakeSession)
     monkeypatch.setattr(http_checker, "inspect_record", inspect_record)
@@ -138,8 +168,8 @@ async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch)
 
     checked, failed = await http_checker.check_all_enabled_records()
 
-    assert stored == [2]
-    assert (checked, failed) == (1, 1)
+    assert stored == [(2, False), (2, True)]
+    assert (checked, failed) == (2, 2)
 
 
 async def _noop() -> None:
