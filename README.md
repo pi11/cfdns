@@ -215,9 +215,10 @@ records. Choose HTTP or HTTPS and enter either a page path such as `/health` or 
 same-host URL such as `https://example.com/health`. Checks follow redirects and consider
 the final response healthy when it has a 2xx status. The final URL, HTTP status, latency,
 error, and last check time are stored and displayed.
-For a Cloudflare-proxied record, you can also enable a direct origin GET check. It connects
-to the record content while sending the record name as the HTTP Host and HTTPS TLS server
-name. Public and direct checks have separate results, history, and failure/recovery alerts.
+After enabling GET for a record, you can also enable a GET check without proxy, regardless
+of its Cloudflare proxy setting. It connects to the record content while sending the record
+name as the HTTP Host and HTTPS TLS server name. The two checks have separate results,
+history, and failure/recovery alerts.
 
 Run all enabled checks manually or from cron:
 
@@ -225,8 +226,9 @@ Run all enabled checks manually or from cron:
 ./scripts/check_http.sh
 ```
 
-GET requests use a 15-second timeout and connect directly rather than through the global
-API proxy. Failure and recovery alerts are deduplicated per DNS record.
+GET requests use a 15-second timeout. Regular GET checks use the global proxy when one is
+configured; the optional direct check bypasses it. Failure and recovery alerts are
+deduplicated independently per record and check route.
 
 ### Check logs
 
@@ -261,9 +263,9 @@ detected and additional reminders at 30, 14, 7, and 1 day before their effective
 The Settings page also controls whether zero-priced, included OVH service components
 are always hidden from the OVH services table.
 
-### Global API proxy
+### Global proxy
 
 Settings can define an encrypted HTTP, HTTPS, or SOCKS5 proxy URL used by all
-Cloudflare, OVH, ATW, and Telegram API requests. A Telegram-specific proxy, when
-configured, overrides the global proxy only for Telegram. Clear the global proxy field
-and save to return all providers without a proxy.
+Cloudflare, OVH, ATW, and Telegram API requests and regular GET checks. A
+Telegram-specific proxy, when configured, overrides the global proxy only for Telegram.
+Clear the global proxy field and save to return all providers without a proxy.

@@ -11,7 +11,7 @@ from app.security import TokenCipher
 
 
 @pytest.mark.asyncio
-async def test_direct_get_option_is_saved_per_proxied_record(session, monkeypatch) -> None:
+async def test_direct_get_option_is_saved_without_cloudflare_proxy(session, monkeypatch) -> None:
     settings = get_settings()
     account = Account(
         name="Main",
@@ -29,7 +29,7 @@ async def test_direct_get_option_is_saved_per_proxied_record(session, monkeypatc
             record_type="A",
             name=f"host{index}.example.com",
             content=f"192.0.2.{index}",
-            proxied=True,
+            proxied=False,
         )
         for index in (1, 2)
     ]
@@ -76,7 +76,6 @@ async def test_direct_get_option_is_saved_per_proxied_record(session, monkeypatc
                     "type": "A",
                     "name": records[0].name,
                     "content": records[0].content,
-                    "proxied": "true",
                     "http_check_enabled": "true",
                     "http_check_direct_enabled": "true",
                 },
@@ -88,6 +87,7 @@ async def test_direct_get_option_is_saved_per_proxied_record(session, monkeypatc
 
     assert response.status_code == 303
     assert records[0].http_check_enabled is True
+    assert records[0].proxied is False
     assert records[0].http_check_direct_enabled is True
     assert records[1].http_check_direct_enabled is False
     assert checked == [False, True]

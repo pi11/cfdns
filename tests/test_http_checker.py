@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
+from app import http_checker
 from app.http_checker import DirectOriginTransport, HTTPCheck, inspect_url, normalize_http_target
 from app.models import DNSRecord, HTTPCheckResult
 
@@ -53,6 +54,32 @@ async def test_inspect_url_records_http_error() -> None:
     assert check.status == "http_error"
     assert check.status_code == 503
     assert check.error == "Server returned HTTP 503."
+
+
+@pytest.mark.asyncio
+async def test_regular_get_uses_configured_proxy(monkeypatch) -> None:
+    real_client = httpx.AsyncClient
+    selected_proxies: list[str | None] = []
+
+    def client_factory(**kwargs):
+        selected_proxies.append(kwargs.pop("proxy"))
+        kwargs["transport"] = httpx.MockTransport(lambda _request: httpx.Response(200))
+        return real_client(**kwargs)
+
+    async def configured_proxy(_session, _settings):
+        return "http://proxy.example:8080"
+
+    monkeypatch.setattr(http_checker.httpx, "AsyncClient", client_factory)
+    monkeypatch.setattr(http_checker, "global_proxy", configured_proxy)
+    monkeypatch.setattr(http_checker, "store_record_result", _store_noop)
+    record = DNSRecord(
+        record_type="A", name="example.com", content="192.0.2.1", http_check_enabled=True
+    )
+
+    await http_checker.check_and_store_record(None, record)
+    await http_checker.check_and_store_record(None, record, direct=True)
+
+    assert selected_proxies == ["http://proxy.example:8080", None]
 
 
 @pytest.mark.asyncio
@@ -117,8 +144,6 @@ async def test_inspect_url_reports_an_unusable_hostname() -> None:
 
 @pytest.mark.asyncio
 async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch) -> None:
-    from app import http_checker
-
     async def explode(_record: DNSRecord) -> None:
         raise RuntimeError("unexpected failure")
 
@@ -132,7 +157,7 @@ async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch)
             content="192.0.2.1",
             http_check_enabled=True,
             http_check_direct_enabled=index == 2,
-            proxied=index == 2,
+            proxied=False,
         )
         for index in (1, 2)
     ]
@@ -151,9 +176,13 @@ async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch)
         async def rollback(self) -> None:
             return None
 
-    async def inspect_record(record: DNSRecord, *, direct: bool = False) -> HTTPCheck:
+    async def inspect_record(
+        record: DNSRecord, *, direct: bool = False, proxy_url: str | None = None
+    ) -> HTTPCheck:
         if record.id == 1:
             await explode(record)
+        if not direct:
+            assert proxy_url == "http://proxy.example:8080"
         if direct:
             return HTTPCheck(record.http_check_url, None, "http_error", 503)
         return HTTPCheck(record.http_check_url, None, "healthy", 200, 1.0)
@@ -162,6 +191,7 @@ async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch)
         stored.append((record.id, kwargs.get("direct", False)))
 
     monkeypatch.setattr(http_checker, "SessionLocal", FakeSession)
+    monkeypatch.setattr(http_checker, "global_proxy", _proxy_for_test)
     monkeypatch.setattr(http_checker, "inspect_record", inspect_record)
     monkeypatch.setattr(http_checker, "store_record_result", store_record_result)
     monkeypatch.setattr(http_checker, "prune_check_logs", lambda *_args: _noop())
@@ -174,3 +204,11 @@ async def test_check_all_enabled_records_survives_one_broken_record(monkeypatch)
 
 async def _noop() -> None:
     return None
+
+
+async def _store_noop(*_args, **_kwargs) -> None:
+    return None
+
+
+async def _proxy_for_test(*_args) -> str:
+    return "http://proxy.example:8080"

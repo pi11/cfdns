@@ -28,7 +28,7 @@
     {% if record.http_check_enabled %}
     <span class="ssl-status {{ record.http_display_status }}" title="{{ record.http_check_url }}">{% if record.http_display_status == 'pending' %}GET pending{% elif record.http_display_status == 'ok' %}GET {{ record.http_result.status_code }}{% else %}GET failed{% endif %}</span>
     {% endif %}
-    {% if record.http_check_direct_enabled and record.proxied %}
+    {% if record.http_check_direct_enabled %}
     <span class="ssl-status {{ record.http_direct_display_status }}" title="Origin: {{ record.content }}">{% if record.http_direct_display_status == 'pending' %}GET direct pending{% elif record.http_direct_display_status == 'ok' %}GET direct {{ record.http_direct_result.status_code }}{% else %}GET direct failed{% endif %}</span>
     {% endif %}
   </td>

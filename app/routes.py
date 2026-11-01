@@ -587,7 +587,7 @@ async def create_record(
             http_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
         )
         record.http_check_direct_enabled = (
-            http_check_direct_enabled and record.http_check_enabled and bool(record.proxied)
+            http_check_direct_enabled and record.http_check_enabled
         )
         record.http_check_scheme = http_check_scheme
         record.http_check_path = http_check_path
@@ -674,7 +674,7 @@ async def update_record(
             http_check_enabled and record.record_type in ELIGIBLE_RECORD_TYPES
         )
         record.http_check_direct_enabled = (
-            http_check_direct_enabled and record.http_check_enabled and bool(record.proxied)
+            http_check_direct_enabled and record.http_check_enabled
         )
         record.http_check_scheme = http_check_scheme
         record.http_check_path = http_check_path

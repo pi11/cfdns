@@ -1,4 +1,4 @@
-"""Add independent origin GET monitoring for Cloudflare-proxied records."""
+"""Add independent origin GET monitoring for DNS records."""
 
 import sqlalchemy as sa
 from alembic import op

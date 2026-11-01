@@ -14,6 +14,7 @@ from sqlalchemy.orm import joinedload
 from app.check_logs import http_log_entry, prune_check_logs
 from app.database import SessionLocal
 from app.models import DNSRecord, HTTPCheckResult, HTTPDirectCheckResult
+from app.proxy import global_proxy
 from app.ssl_checker import ELIGIBLE_RECORD_TYPES
 
 HTTP_TIMEOUT_SECONDS = 15
@@ -83,13 +84,16 @@ def normalize_http_target(record_name: str, scheme: str, page: str) -> tuple[str
     return scheme, page
 
 
-async def inspect_url(url: str, transport: httpx.AsyncBaseTransport | None = None) -> HTTPCheck:
+async def inspect_url(
+    url: str, transport: httpx.AsyncBaseTransport | None = None, *, proxy_url: str | None = None
+) -> HTTPCheck:
     started = perf_counter()
     try:
         async with httpx.AsyncClient(
             timeout=HTTP_TIMEOUT_SECONDS,
             follow_redirects=True,
             transport=transport,
+            proxy=proxy_url,
             trust_env=False,
             headers={"User-Agent": "CFDNS-HTTP-Monitor/1.0"},
         ) as client:
@@ -116,7 +120,9 @@ async def inspect_url(url: str, transport: httpx.AsyncBaseTransport | None = Non
         return HTTPCheck(url, None, "invalid_url", error=str(exc) or "Invalid URL.")
 
 
-async def inspect_record(record: DNSRecord, *, direct: bool = False) -> HTTPCheck | None:
+async def inspect_record(
+    record: DNSRecord, *, direct: bool = False, proxy_url: str | None = None
+) -> HTTPCheck | None:
     if record.record_type not in ELIGIBLE_RECORD_TYPES:
         return None
     if direct:
@@ -124,7 +130,7 @@ async def inspect_record(record: DNSRecord, *, direct: bool = False) -> HTTPChec
             record.http_check_url,
             transport=DirectOriginTransport(record.name, record.content),
         )
-    return await inspect_url(record.http_check_url)
+    return await inspect_url(record.http_check_url, proxy_url=proxy_url)
 
 
 async def store_record_result(
@@ -159,7 +165,13 @@ async def store_record_result(
 async def check_and_store_record(
     session: AsyncSession, record: DNSRecord, *, direct: bool = False
 ) -> HTTPCheck | None:
-    check = await inspect_record(record, direct=True) if direct else await inspect_record(record)
+    if direct:
+        check = await inspect_record(record, direct=True)
+    else:
+        from app.config import get_settings
+
+        proxy_url = await global_proxy(session, get_settings())
+        check = await inspect_record(record, proxy_url=proxy_url)
     if check is not None:
         if direct:
             await store_record_result(session, record, check, direct=True)
@@ -170,6 +182,10 @@ async def check_and_store_record(
 
 async def check_all_enabled_records() -> tuple[int, int]:
     async with SessionLocal() as session:
+        from app.config import get_settings
+
+        settings = get_settings()
+        proxy_url = await global_proxy(session, settings)
         records = list(
             await session.scalars(
                 select(DNSRecord)
@@ -187,14 +203,14 @@ async def check_all_enabled_records() -> tuple[int, int]:
             async with semaphore:
                 if direct:
                     return await inspect_record(record, direct=True)
-                return await inspect_record(record)
+                return await inspect_record(record, proxy_url=proxy_url)
 
         targets = [
             (record, direct)
             for record in records
             for direct, enabled in (
                 (False, record.http_check_enabled),
-                (True, record.http_check_direct_enabled and record.proxied),
+                (True, record.http_check_direct_enabled),
             )
             if enabled
         ]
@@ -217,7 +233,5 @@ async def check_all_enabled_records() -> tuple[int, int]:
             except Exception:
                 await session.rollback()
                 failed += 1
-        from app.config import get_settings
-
-        await prune_check_logs(session, get_settings().check_log_retention_days)
+        await prune_check_logs(session, settings.check_log_retention_days)
         return checked, failed
