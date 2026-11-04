@@ -248,6 +248,7 @@ async def dashboard(
     record_type: str = "",
     proxy_status: str = "",
     ssl_status: str = "",
+    get_status: str = "",
     page: int = Query(default=1, ge=1),
     per_page: str = "25",
     session: AsyncSession = Depends(get_db),
@@ -258,6 +259,8 @@ async def dashboard(
         proxy_status = ""
     if ssl_status not in {"", "error", "expiring"}:
         ssl_status = ""
+    if get_status not in {"", "error"}:
+        get_status = ""
     selected_account_id = int(account_id) if account_id.isdigit() else None
     selected_zone_id = int(zone_id) if zone_id.isdigit() else None
     accounts = list(
@@ -289,6 +292,18 @@ async def dashboard(
         conditions.append(DNSRecord.proxied.is_not(True))
 
     ssl_error_condition = DNSRecord.ssl_results.any(SSLCheckResult.status != "valid")
+    get_error_condition = or_(
+        DNSRecord.http_result.has(HTTPCheckResult.status != "healthy"),
+        DNSRecord.http_direct_result.has(HTTPDirectCheckResult.status != "healthy"),
+    )
+    get_error_count = int(
+        await session.scalar(
+            select(func.count(DNSRecord.id))
+            .join(DNSRecord.zone)
+            .where(*conditions, get_error_condition)
+        )
+        or 0
+    )
     now = datetime.now(UTC)
     ssl_expiring_condition = DNSRecord.ssl_check_enabled.is_(True) & DNSRecord.ssl_results.any(
         (SSLCheckResult.status == "valid")
@@ -316,6 +331,8 @@ async def dashboard(
         conditions.append(ssl_error_condition)
     elif ssl_status == "expiring":
         conditions.append(ssl_expiring_condition)
+    if get_status == "error":
+        conditions.append(get_error_condition)
 
     total_records = int(
         await session.scalar(
@@ -364,6 +381,7 @@ async def dashboard(
             "record_type": record_type,
             "proxy_status": proxy_status,
             "ssl_status": ssl_status,
+            "get_status": get_status,
             "per_page": per_page,
             "page": target_page,
         }
@@ -385,6 +403,7 @@ async def dashboard(
             "record_type": record_type,
             "proxy_status": "" if proxy_status == status else status,
             "ssl_status": ssl_status,
+            "get_status": get_status,
             "per_page": per_page,
             "page": 1,
         }
@@ -398,6 +417,7 @@ async def dashboard(
             "record_type": record_type,
             "proxy_status": proxy_status,
             "ssl_status": ssl_status,
+            "get_status": get_status,
             "per_page": per_page,
             "page": 1,
         }
@@ -411,6 +431,21 @@ async def dashboard(
             "record_type": record_type,
             "proxy_status": proxy_status,
             "ssl_status": "" if ssl_status == status else status,
+            "get_status": get_status,
+            "per_page": per_page,
+            "page": 1,
+        }
+        return f"/?{urlencode(params)}"
+
+    def get_filter_url() -> str:
+        params = {
+            "q": q,
+            "account_id": selected_account_id or "",
+            "zone_id": selected_zone_id or "",
+            "record_type": record_type,
+            "proxy_status": proxy_status,
+            "ssl_status": ssl_status,
+            "get_status": "" if get_status == "error" else "error",
             "per_page": per_page,
             "page": 1,
         }
@@ -430,6 +465,9 @@ async def dashboard(
         "record_type": record_type,
         "proxy_status": proxy_status,
         "ssl_status": ssl_status,
+        "get_status": get_status,
+        "get_error_count": get_error_count,
+        "get_error_filter_url": get_filter_url(),
         "ssl_error_count": ssl_error_count,
         "ssl_expiring_count": ssl_expiring_count,
         "ssl_error_filter_url": ssl_filter_url("error"),

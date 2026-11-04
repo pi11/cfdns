@@ -23,10 +23,6 @@
   stroke-linejoin: round;
 }
 
-.metric-icon.zones {
-  stroke: #8bb4ff;
-}
-
 .metric-icon.records {
   stroke: #75a4ff;
 }
